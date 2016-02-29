@@ -37,21 +37,4 @@ namespace summer_lang
 
 		static std::string generate_function_name(const std::string & name);
 	};
-
-	class helping_memory_manager :
-		public llvm::SectionMemoryManager
-	{
-		MCJIT_helper * helper_;
-	public:
-		helping_memory_manager(MCJIT_helper * helper)
-			: helper_(helper)
-		{
-		}
-
-		~helping_memory_manager() override
-		{
-		}
-
-		uint64_t getSymbolAddress(const std::string & name) override;
-	};
 }

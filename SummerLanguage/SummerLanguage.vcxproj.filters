@@ -30,6 +30,9 @@
     <ClInclude Include="error.h">
       <Filter>头文件</Filter>
     </ClInclude>
+    <ClInclude Include="lib.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="tokenizer.cpp">

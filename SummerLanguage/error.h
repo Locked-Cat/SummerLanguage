@@ -3,6 +3,9 @@
 #include <string>
 #include <iostream>
 
+#define ILLEAGL_NUMBER 0
+#define ILLEAGL_CHAR 1
+
 namespace summer_lang
 {
 	template <typename T = void *>

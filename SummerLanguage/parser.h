@@ -20,6 +20,7 @@
 #include "tokenizer.h"
 #include "MCJIT_helper.h"
 #include "error.h"
+#include "lib.h"
 
 namespace summer_lang
 {
@@ -90,6 +91,25 @@ namespace summer_lang
 		virtual llvm::Value * codegen() override;
 	};
 
+	class for_expression_ast
+		: public ast
+	{
+		std::string var_name_;
+		std::unique_ptr<ast> start_, end_, step_, body_;
+
+	public:
+		for_expression_ast(const std::string & var_name, std::unique_ptr<ast> start, std::unique_ptr<ast> end, std::unique_ptr<ast> step, std::unique_ptr<ast> body)
+			: var_name_(var_name)
+			, start_(std::move(start))
+			, end_(std::move(end))
+			, step_(std::move(step))
+			, body_(std::move(body))
+		{
+		}
+
+		virtual llvm::Value * codegen() override;
+	};
+
 	class if_expression_ast
 		: public ast
 	{
@@ -139,7 +159,7 @@ namespace summer_lang
 
 	static llvm::IRBuilder<> global_builder(llvm::getGlobalContext());
 	static std::map<std::string, llvm::Value *> global_named_values;
-	static std::unique_ptr<MCJIT_helper> JIT_helper;
+	static std::unique_ptr<MCJIT_helper> global_JIT_helper;
 
 	class parser
 	{
@@ -157,6 +177,7 @@ namespace summer_lang
 		std::unique_ptr<ast> parse_expression_();
 		std::unique_ptr<ast> parse_bin_op_right_(int expr_precedence, std::unique_ptr<ast> left);
 		std::unique_ptr<ast> parse_if_();
+		std::unique_ptr<ast> parse_for_();
 
 		std::unique_ptr<prototype_ast> parse_prototype_();
 		std::unique_ptr<function_ast> parse_function_();

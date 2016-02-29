@@ -9,12 +9,14 @@ namespace summer_lang
 		llvm::InitializeNativeTargetAsmParser();
 		llvm::InitializeNativeTargetAsmPrinter();
 		auto & context = llvm::getGlobalContext();
-		JIT_helper = std::make_unique<MCJIT_helper>(context);
+		global_JIT_helper = std::make_unique<MCJIT_helper>(context);
 
 		precedence_['<'] = 10;
 		precedence_['+'] = 20;
 		precedence_['-'] = 20;
 		precedence_['*'] = 49;
+
+		lib::import();
 	}
 
 	void parser::handle_extern()
@@ -23,8 +25,6 @@ namespace summer_lang
 		{
 			if (auto ir = proto_ast->codegen())
 			{
-				std::cout << "Parsed an extern";
-				ir->dump();
 			}
 		}
 		else
@@ -37,8 +37,6 @@ namespace summer_lang
 		{
 			if (auto ir = func_ast->codegen())
 			{
-				std::cout << "Parsed a function";
-				ir->dump();
 			}
 		}
 		else
@@ -51,8 +49,8 @@ namespace summer_lang
 		{
 			if (auto ir = func_ast->codegen())
 			{
-				auto p_function = (double(*)())(intptr_t)JIT_helper->get_pointer_to_function(ir);
-				std::cout << p_function() << std::endl;
+				auto p_function = (double(*)())(intptr_t)global_JIT_helper->get_pointer_to_function(ir);
+				p_function();
 			}
 		}
 		else
@@ -79,18 +77,18 @@ namespace summer_lang
 				{
 					auto current_keyword = current_token_.get_value<keyword>();
 					if (current_keyword == "extern")
+					{
 						handle_extern();
+						break;
+					}
 					else
 					{
 						if (current_keyword == "function")
-							handle_function();
-						else
 						{
-							print_error<>("Unknown keyword");
-							get_next_token_();
+							handle_function();
+							break;
 						}
 					}
-					break;
 				}
 				default:
 					handle_top_level_expr();
@@ -179,7 +177,10 @@ namespace summer_lang
 			if (current_token_.get_value<keyword>() == "if")
 				return parse_if_();
 			else
-				break;
+				if (current_token_.get_value<keyword>() == "for")
+					return parse_for_();
+				else
+					break;
 		case token_type::OPERATOR:
 			if (current_token_.get_value<op>() == '(')
 				return parse_parenthesis_();
@@ -188,7 +189,7 @@ namespace summer_lang
 		default:
 			break;
 		}
-		return print_error<std::unique_ptr<ast>>("Unknown token when expection an expression");
+		return print_error<std::unique_ptr<ast>>("Unknown token when expect an expression");
 	}
 
 	std::unique_ptr<ast> parser::parse_expression_()
@@ -255,6 +256,53 @@ namespace summer_lang
 
 		return std::make_unique<if_expression_ast>(std::move(cond), std::move(then_part), std::move(else_part));
 
+	}
+
+	std::unique_ptr<ast> parser::parse_for_()
+	{
+		get_next_token_();
+
+		if (current_token_.get_type() != token_type::IDENTIFIER)
+			return print_error<std::unique_ptr<ast>>("Expected a identifier after for");
+		auto var_name = current_token_.get_value<identifier>();
+		get_next_token_();
+
+		if (current_token_.get_value<op>() != '=')
+			return print_error<std::unique_ptr<ast>>("Expected a '=' after for");
+		get_next_token_();
+
+		auto start = parse_expression_();
+		if (!start)
+			return nullptr;
+
+		if (current_token_.get_value<op>() != ',')
+			return print_error<std::unique_ptr<ast>>("Expected a ',' between parts of for");
+		get_next_token_();
+	
+		auto end = parse_expression_();
+		if (!end)
+			return nullptr;
+
+		std::unique_ptr<ast> step;
+		if (current_token_.get_value<op>() == ',')
+		{
+			get_next_token_();
+			step = parse_expression_();
+			if (!step)
+				return nullptr;
+		}
+		if (!step)
+			step.reset(new number_ast(1));
+
+		if (current_token_.get_value<keyword>() != "in")
+			return print_error<std::unique_ptr<ast>>("Expected \"in\" between head and body of for");
+		get_next_token_();
+		
+		auto body = parse_primary_();
+		if (!body)
+			return nullptr;
+
+		return std::make_unique<for_expression_ast>(var_name, std::move(start), std::move(end), std::move(step), std::move(body));
 	}
 
 	std::unique_ptr<prototype_ast> parser::parse_prototype_()
@@ -374,7 +422,7 @@ namespace summer_lang
 
 	llvm::Value * call_expression_ast::codegen()
 	{
-		auto callee_function = JIT_helper->get_function(callee_);
+		auto callee_function = global_JIT_helper->get_function(callee_);
 		if (!callee_function)
 			return print_error<llvm::Value *>("Unknown function referenced");
 
@@ -397,14 +445,14 @@ namespace summer_lang
 		std::vector<llvm::Type *> doubles(args_.size(), llvm::Type::getDoubleTy(llvm::getGlobalContext()));
 
 		auto function_type = llvm::FunctionType::get(llvm::Type::getDoubleTy(llvm::getGlobalContext()), doubles, false);
-		auto module = JIT_helper->get_module_for_new_function();
+		auto module = global_JIT_helper->get_module_for_new_function();
 
 		auto function_name = MCJIT_helper::generate_function_name(name_);
 		auto function = llvm::Function::Create(function_type, llvm::Function::ExternalLinkage, function_name, module);
 		if (function->getName() != function_name)
 		{
 			function->eraseFromParent();
-			function = JIT_helper->get_function(name_);
+			function = global_JIT_helper->get_function(name_);
 			if (!function->empty())
 				return print_error<llvm::Function *>("Redefinition of function " + name_);
 			if (function->arg_size() != args_.size())
@@ -452,14 +500,13 @@ namespace summer_lang
 	llvm::Value * if_expression_ast::codegen()
 	{
 		auto cond_value = cond_->codegen();
-
 		if (!cond_value)
 			return nullptr;
 
 		cond_value = global_builder.CreateFCmpONE(cond_value, llvm::ConstantFP::get(llvm::getGlobalContext(), llvm::APFloat(0.0)), "ifcond");
-		auto function = global_builder.GetInsertBlock()->getParent();
+		auto parent = global_builder.GetInsertBlock()->getParent();
 
-		auto then_basic_block = llvm::BasicBlock::Create(llvm::getGlobalContext(), "then", function);
+		auto then_basic_block = llvm::BasicBlock::Create(llvm::getGlobalContext(), "then", parent);
 		auto else_basic_block = llvm::BasicBlock::Create(llvm::getGlobalContext(), "else");
 		auto merge_basic_block = llvm::BasicBlock::Create(llvm::getGlobalContext(), "merge");
 
@@ -473,7 +520,7 @@ namespace summer_lang
 		global_builder.CreateBr(merge_basic_block);
 		then_basic_block = global_builder.GetInsertBlock();
 
-		function->getBasicBlockList().push_back(else_basic_block);
+		parent->getBasicBlockList().push_back(else_basic_block);
 		global_builder.SetInsertPoint(else_basic_block);
 
 		auto else_value = else_part_->codegen();
@@ -483,12 +530,67 @@ namespace summer_lang
 		global_builder.CreateBr(merge_basic_block);
 		else_basic_block = global_builder.GetInsertBlock();
 
-		function->getBasicBlockList().push_back(merge_basic_block);
+		parent->getBasicBlockList().push_back(merge_basic_block);
 		global_builder.SetInsertPoint(merge_basic_block);
 
 		auto PHI_node = global_builder.CreatePHI(llvm::Type::getDoubleTy(llvm::getGlobalContext()), 2, "iftmp");
 		PHI_node->addIncoming(then_value, then_basic_block);
 		PHI_node->addIncoming(else_value, else_basic_block);
 		return PHI_node;
+	}
+
+	llvm::Value * for_expression_ast::codegen()
+	{
+		auto start_value = start_->codegen();
+		if (!start_value)
+			return nullptr;
+
+		auto parent = global_builder.GetInsertBlock()->getParent();
+		auto parent_basic_block = global_builder.GetInsertBlock();
+
+		auto cmp_basic_block = llvm::BasicBlock::Create(llvm::getGlobalContext(), "cmp", parent);
+		auto body_basic_block = llvm::BasicBlock::Create(llvm::getGlobalContext(), "body");
+		auto after_basic_block = llvm::BasicBlock::Create(llvm::getGlobalContext(), "after");
+
+		global_builder.CreateBr(cmp_basic_block);
+
+		global_builder.SetInsertPoint(cmp_basic_block);		
+		auto variable = global_builder.CreatePHI(llvm::Type::getDoubleTy(llvm::getGlobalContext()), 2, var_name_.c_str());
+		variable->addIncoming(start_value, parent_basic_block);
+		auto old_val = global_named_values[var_name_];
+		global_named_values[var_name_] = variable;
+
+		auto end_cond = end_->codegen();												  
+		if (!end_cond)
+			return false;
+
+		end_cond = global_builder.CreateFCmpONE(end_cond, llvm::ConstantFP::get(llvm::getGlobalContext(), llvm::APFloat(0.0)), "loop_cond");
+		global_builder.CreateCondBr(end_cond, body_basic_block, after_basic_block);
+		cmp_basic_block = global_builder.GetInsertBlock();
+
+		parent->getBasicBlockList().push_back(body_basic_block);
+		global_builder.SetInsertPoint(body_basic_block);
+		if (!body_->codegen())
+			return nullptr;
+
+		auto step_value = step_->codegen();
+		if (!step_value)
+			return nullptr;
+
+		auto next_value = global_builder.CreateFAdd(variable, step_value, "next_var");
+		variable->addIncoming(next_value, body_basic_block);
+		global_builder.CreateBr(cmp_basic_block);
+		body_basic_block = global_builder.GetInsertBlock();
+
+		parent->getBasicBlockList().push_back(after_basic_block);
+		global_builder.SetInsertPoint(after_basic_block);
+
+		if (old_val)
+			global_named_values[var_name_] = old_val;
+		else
+			global_named_values.erase(var_name_);
+		after_basic_block = global_builder.GetInsertBlock();
+
+		return llvm::Constant::getNullValue(llvm::Type::getDoubleTy(llvm::getGlobalContext()));
 	}
 }

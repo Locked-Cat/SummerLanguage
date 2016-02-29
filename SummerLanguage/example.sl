@@ -1,6 +1,6 @@
-function fib(n)
-	if n < 3 
-	then 1
-	else fib(n - 1) + fib(n - 2)
+extern putc(c)
+extern putd(d)
 
-fib(10)
+for i = 0, i < 10, 2 in
+	putd(i)
+putc('\n')

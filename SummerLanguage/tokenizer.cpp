@@ -1,4 +1,5 @@
 #include "tokenizer.h"
+#include "error.h"
 #include <cctype>
 #include <cstdlib>
 
@@ -41,7 +42,9 @@ namespace summer_lang
 				|| str == "extern"
 				|| str == "if"
 				|| str == "then"
-				|| str == "else")
+				|| str == "else"
+				|| str == "for"
+				|| str == "in")
 				type = summer_lang::token_type::KEYWORD;
 
 			return summer_lang::token(type, str);
@@ -57,6 +60,45 @@ namespace summer_lang
 
 			auto num = std::strtod(num_str.c_str(), nullptr);
 			return summer_lang::token(num);
+		}
+
+		if (last_char == '\'')
+		{
+			auto ch_str = std::string();
+
+			while ((last_char = source_code_.get()) != EOF && last_char != '\'')
+				ch_str += last_char;
+
+			if (last_char == '\'')
+				last_char = source_code_.get();
+			else
+				exit(ILLEAGL_CHAR);
+
+			double ch;
+			if (ch_str.length() == 1)
+			{
+				ch = static_cast<double>(ch_str[0]);
+				return summer_lang::token(ch);
+			}
+			else
+			{
+				if (ch_str.length() == 2)
+				{
+					if (ch_str[0] == '\\')
+					{
+						switch (ch_str[1])
+						{
+						case 'n':
+							ch = static_cast<double>('\n');
+							return token(ch);
+						default:
+							break;
+						}
+					}
+				}
+			}
+
+			exit(ILLEAGL_CHAR);
 		}
 
 		auto result = summer_lang::token(static_cast<char>(last_char));

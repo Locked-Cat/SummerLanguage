@@ -98,19 +98,4 @@ namespace summer_lang
 			return "anno_func";
 		return name;
 	}
-
-	uint64_t helping_memory_manager::getSymbolAddress(const std::string & name)
-	{
-		auto function_addr = llvm::SectionMemoryManager::getSymbolAddress(name);
-		if (function_addr)
-			return function_addr;
-
-		auto helper_func = (uint64_t)helper_->get_symbol_address(name);
-		if (!helper_func)
-		{
-			summer_lang::print_error<void *>("function " + name + " could not be resolved");
-			exit(2);
-		}
-		return helper_func;
-	}
 }
