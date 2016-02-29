@@ -36,8 +36,12 @@ namespace summer_lang
 			while ((last_char = source_code_.get()) != EOF && (isalnum(last_char) || last_char == '_'))
 				str += last_char;
 
-			auto type = summer_lang::token_type::STRING;
-			if (str == "function" || str == "extern")
+			auto type = summer_lang::token_type::IDENTIFIER;
+			if (str == "function"
+				|| str == "extern"
+				|| str == "if"
+				|| str == "then"
+				|| str == "else")
 				type = summer_lang::token_type::KEYWORD;
 
 			return summer_lang::token(type, str);

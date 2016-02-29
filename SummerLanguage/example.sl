@@ -1,5 +1,6 @@
-extern sin(x)
-extern cos(x)
+function fib(n)
+	if n < 3 
+	then 1
+	else fib(n - 1) + fib(n - 2)
 
-function add(x, y)
-	x + y
+fib(10)

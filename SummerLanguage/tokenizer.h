@@ -9,7 +9,7 @@ namespace summer_lang
 	enum token_type
 	{
 		KEYWORD,
-		STRING,
+		IDENTIFIER,
 		NUMBER,
 		OPERATOR,
 		END,

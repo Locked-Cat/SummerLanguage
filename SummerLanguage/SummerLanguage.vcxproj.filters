@@ -24,6 +24,12 @@
     <ClInclude Include="parser.h">
       <Filter>头文件</Filter>
     </ClInclude>
+    <ClInclude Include="MCJIT_helper.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
+    <ClInclude Include="error.h">
+      <Filter>头文件</Filter>
+    </ClInclude>
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="tokenizer.cpp">
@@ -33,6 +39,9 @@
       <Filter>源文件</Filter>
     </ClCompile>
     <ClCompile Include="parser.cpp">
+      <Filter>源文件</Filter>
+    </ClCompile>
+    <ClCompile Include="MCJIT_helper.cpp">
       <Filter>源文件</Filter>
     </ClCompile>
   </ItemGroup>
