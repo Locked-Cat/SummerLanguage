@@ -5,17 +5,12 @@
 
 namespace summer_lang
 {
-	summer_lang::token_type token::get_type() const
-	{
-		return type_;
-	}
-
-	token tokenizer::get_token()
+	std::unique_ptr<token> tokenizer::get_token()
 	{
 		static int last_char = ' ';
 
 		if (last_char == EOF)
-			return token(summer_lang::token(summer_lang::token_type::END));
+			return std::make_unique<end>();
 
 		if (std::isspace(last_char))
 		{
@@ -37,17 +32,31 @@ namespace summer_lang
 			while ((last_char = source_code_.get()) != EOF && (isalnum(last_char) || last_char == '_'))
 				str += last_char;
 
-			auto type = summer_lang::token_type::IDENTIFIER;
-			if (str == "function"
-				|| str == "extern"
-				|| str == "if"
-				|| str == "then"
-				|| str == "else"
-				|| str == "for"
-				|| str == "in")
-				type = summer_lang::token_type::KEYWORD;
+			if (str == "extern")
+				return std::make_unique<keyword>(keyword_type::EXTERN);
 
-			return summer_lang::token(type, str);
+			if (str == "function")
+				return std::make_unique<keyword>(keyword_type::FUNCTION);
+
+			if (str == "if")
+				return std::make_unique<keyword>(keyword_type::IF);
+
+			if (str == "then")
+				return std::make_unique<keyword>(keyword_type::THEN);
+
+			if (str == "for")
+				return std::make_unique<keyword>(keyword_type::FOR);
+
+			if (str == "in")
+				return std::make_unique<keyword>(keyword_type::IN);
+
+			if (str == "unary")
+				return std::make_unique<keyword>(keyword_type::UNARY);
+
+			if (str == "binary")
+				return std::make_unique<keyword>(keyword_type::BINARY);
+
+			return std::make_unique<identifier>(str);
 		}
 
 		if (std::isdigit(last_char) || last_char == '.')
@@ -59,7 +68,7 @@ namespace summer_lang
 				num_str += last_char;
 
 			auto num = std::strtod(num_str.c_str(), nullptr);
-			return summer_lang::token(num);
+			return std::make_unique<number>(num);
 		}
 
 		if (last_char == '\'')
@@ -72,13 +81,13 @@ namespace summer_lang
 			if (last_char == '\'')
 				last_char = source_code_.get();
 			else
-				exit(ILLEAGL_CHAR);
+				return std::make_unique<unknown>();
 
 			double ch;
 			if (ch_str.length() == 1)
 			{
 				ch = static_cast<double>(ch_str[0]);
-				return summer_lang::token(ch);
+				return std::make_unique<number>(ch);
 			}
 			else
 			{
@@ -90,19 +99,18 @@ namespace summer_lang
 						{
 						case 'n':
 							ch = static_cast<double>('\n');
-							return token(ch);
+							return std::make_unique<number>(ch);
 						default:
 							break;
 						}
 					}
 				}
+				return std::make_unique<unknown>();
 			}
-
-			exit(ILLEAGL_CHAR);
 		}
 
-		auto result = summer_lang::token(static_cast<char>(last_char));
+		auto result = std::make_unique<op>(last_char);
 		last_char = source_code_.get();
-		return result;
+		return std::move(result);
 	}
 }

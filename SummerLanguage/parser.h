@@ -164,7 +164,7 @@ namespace summer_lang
 	class parser
 	{
 		std::map<char, int> precedence_;
-		token current_token_;
+		std::unique_ptr<token> current_token_;
 		std::unique_ptr<tokenizer> p_tokenizer_;
 
 		int get_op_precedence_(char op);
@@ -187,11 +187,6 @@ namespace summer_lang
 		void handle_extern();
 		void handle_function();
 		void handle_top_level_expr();
-
-		using op = char;
-		using identifier = std::string;
-		using keyword = std::string;
-		using number = double;
 	public:
 		parser(const parser &) = delete;
 		parser & operator=(const parser &) = delete;
