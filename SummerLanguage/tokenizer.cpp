@@ -44,6 +44,9 @@ namespace summer_lang
 			if (str == "then")
 				return std::make_unique<keyword>(keyword_type::THEN);
 
+			if (str == "else")
+				return std::make_unique<keyword>(keyword_type::ELSE);
+
 			if (str == "for")
 				return std::make_unique<keyword>(keyword_type::FOR);
 

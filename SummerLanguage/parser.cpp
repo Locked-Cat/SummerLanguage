@@ -125,7 +125,7 @@ namespace summer_lang
 		if (!result)
 			return result;
 
-		if (get_value<op>(current_token_) != ')')
+		if (current_token_->get_type() != token_type::OPERATOR || get_value<op>(current_token_) != ')')
 			return print_error<std::unique_ptr<ast>>("Expected a ')'");
 		get_next_token_();
 		return result;
@@ -136,33 +136,28 @@ namespace summer_lang
 		auto name = get_value<identifier>(current_token_);
 
 		get_next_token_();
-		if (get_value<op>(current_token_) != '(')
+		if (current_token_->get_type() != token_type::OPERATOR || get_value<op>(current_token_) != '(')
 			return std::make_unique<variable_ast>(name);
 		
 		get_next_token_();
 		std::vector<std::unique_ptr<ast>> args;
-		try
+		if (current_token_->get_type() != token_type::OPERATOR || get_value<op>(current_token_) != ')')
 		{
-			if (get_value<op>(current_token_) != ')')
+			while (true)
 			{
-				while (true)
-				{
-					auto arg = parse_expression_();
-					if (!arg)
-						return nullptr;
-					args.push_back(std::move(arg));
+				auto arg = parse_expression_();
+				if (!arg)
+					return nullptr;
+				args.push_back(std::move(arg));
 
-					if (get_value<op>(current_token_) == ')')
-						break;
-					if (get_value<op>(current_token_) != ',')
-						return print_error<std::unique_ptr<ast>>("Expect a ')' or ',' in argument list");
+				if (current_token_->get_type() == token_type::OPERATOR && get_value<op>(current_token_) == ')')
+					break;
 
-					get_next_token_();
-				}
+				if (current_token_->get_type() != token_type::OPERATOR ||  get_value<op>(current_token_) != ',')
+					return print_error<std::unique_ptr<ast>>("Expect a ')' or ',' in argument list");
+
+				get_next_token_();
 			}
-		}
-		catch(...)
-		{
 		}
 		get_next_token_();
 		return std::make_unique<call_expression_ast>(name, std::move(args));
@@ -212,37 +207,37 @@ namespace summer_lang
 	std::unique_ptr<ast> parser::parse_bin_op_right_(int expr_precedence, std::unique_ptr<ast> left)
 	{
 		while (true)
-		{
-			op::value_type current_op;
-			auto current_precedence = -1;
-			try
+		{ 
+			if (current_token_->get_type() == token_type::OPERATOR)
 			{
-				current_op = get_value<op>(current_token_);
-				current_precedence = get_op_precedence_(current_op);
-			}
-			catch (...)
-			{
-			}
+				auto current_op = get_value<op>(current_token_);
+				auto current_precedence = get_op_precedence_(current_op);
 
-			if (current_precedence < expr_precedence)
-				return left;
+				if (current_precedence < expr_precedence)
+					return left;
 
-			get_next_token_();
-			auto right = parse_primary_();
-			if (!right)
-				return nullptr;
-
-			auto next_op = get_value<op>(current_token_);
-			auto next_precedence = get_op_precedence_(next_op);
-
-			if (current_precedence < next_precedence)
-			{
-				right = parse_bin_op_right_(current_precedence + 1, std::move(right));
+				get_next_token_();
+				auto right = parse_primary_();
 				if (!right)
 					return nullptr;
-			}
 
-			left = std::make_unique<binary_expression_ast>(current_op, std::move(left), std::move(right));
+				if (current_token_->get_type() == token_type::OPERATOR)
+				{
+					auto next_op = get_value<op>(current_token_);
+					auto next_precedence = get_op_precedence_(next_op);
+
+					if (current_precedence < next_precedence)
+					{
+						right = parse_bin_op_right_(current_precedence + 1, std::move(right));
+						if (!right)
+							return nullptr;
+					}
+				}
+
+				left = std::make_unique<binary_expression_ast>(current_op, std::move(left), std::move(right));
+			}
+			else
+				return  left;
 		}
 	}
 
@@ -254,7 +249,7 @@ namespace summer_lang
 		if (!cond)
 			return nullptr;
 
-		if (get_value<keyword>(current_token_) != keyword_type::THEN)
+		if (current_token_->get_type() != token_type::KEYWORD || get_value<keyword>(current_token_) != keyword_type::THEN)
 			return print_error<std::unique_ptr<ast>>("Expected then");
 		get_next_token_();
 
@@ -262,7 +257,7 @@ namespace summer_lang
 		if (!then_part)
 			return nullptr;
 
-		if (get_value<keyword>(current_token_) != keyword_type::ELSE)
+		if (current_token_->get_type() != token_type::KEYWORD || get_value<keyword>(current_token_) != keyword_type::ELSE)
 			return print_error<std::unique_ptr<ast>>("Expected else");
 		get_next_token_();
 
@@ -283,7 +278,7 @@ namespace summer_lang
 		auto var_name = get_value<identifier>(current_token_);
 		get_next_token_();
 
-		if (get_value<op>(current_token_) != '=')
+		if (current_token_ ->get_type() != token_type::OPERATOR || get_value<op>(current_token_) != '=')
 			return print_error<std::unique_ptr<ast>>("Expected a '=' after for");
 		get_next_token_();
 
@@ -291,7 +286,7 @@ namespace summer_lang
 		if (!start)
 			return nullptr;
 
-		if (get_value<op>(current_token_) != ',')
+		if (current_token_ ->get_type() != token_type::OPERATOR ||get_value<op>(current_token_) != ',')
 			return print_error<std::unique_ptr<ast>>("Expected a ',' between parts of for");
 		get_next_token_();
 	
@@ -300,7 +295,7 @@ namespace summer_lang
 			return nullptr;
 
 		std::unique_ptr<ast> step;
-		if (get_value<op>(current_token_) == ',')
+		if (current_token_->get_type() == token_type::OPERATOR && get_value<op>(current_token_) == ',')
 		{
 			get_next_token_();
 			step = parse_expression_();
@@ -310,7 +305,7 @@ namespace summer_lang
 		if (!step)
 			step.reset(new number_ast(1));
 
-		if (get_value<keyword>(current_token_) != keyword_type::IN)
+		if (current_token_->get_type() != token_type::KEYWORD || get_value<keyword>(current_token_) != keyword_type::IN)
 			return print_error<std::unique_ptr<ast>>("Expected \"in\" between head and body of for");
 		get_next_token_();
 		
@@ -329,17 +324,13 @@ namespace summer_lang
 		auto name = get_value<identifier>(current_token_);
 		get_next_token_();
 
-		if (get_value<op>(current_token_) != '(')
+		if (current_token_->get_type() != token_type::OPERATOR || get_value<op>(current_token_) != '(')
 			return print_error<std::unique_ptr<prototype_ast>>("Expected '(' in prototype");
 		get_next_token_();
 
 		std::vector<std::string> args;
-		try
-		{
-			if (get_value<op>(current_token_) == ')')
-				return print_error<std::unique_ptr<prototype_ast>>("Expect a ')'");
-		}
-		catch (...)
+
+		if (current_token_->get_type() != token_type::OPERATOR || get_value<op>(current_token_) != ')')
 		{
 			while (true)
 			{
@@ -350,10 +341,10 @@ namespace summer_lang
 				args.push_back(arg);
 				get_next_token_();
 
-				if (get_value<op>(current_token_) == ')')
+				if (current_token_->get_type() == token_type::OPERATOR && get_value<op>(current_token_) == ')')
 					break;
 
-				if (get_value<op>(current_token_) != ',')
+				if (current_token_->get_type() != token_type::OPERATOR || get_value<op>(current_token_) != ',')
 					return print_error<std::unique_ptr<prototype_ast>>("Expect a ')' or ',' in prototype");
 
 				get_next_token_();
@@ -393,12 +384,6 @@ namespace summer_lang
 			return nullptr;
 
 		return std::make_unique<function_ast>(std::move(prototype), std::move(expression));
-	}
-
-	llvm::Value * error_v(const std::string & message)
-	{
-		std::cerr << message << std::endl;
-		return nullptr;
 	}
 
 	llvm::Value * number_ast::codegen()
