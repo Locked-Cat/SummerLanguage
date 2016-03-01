@@ -1,20 +1,20 @@
 #include "parser.h"
 #include <fstream>
 #include <vector>
+#include <cstdlib>
 
 using namespace std;
 using namespace summer_lang;
 
-double print(double v)
+int main(int argc, char * argv[])
 {
-	cout << char(v) << endl;
-	return 0;
-}
-
-int main()
-{
+	if (argc != 2)
+	{
+		cerr << "Illegal format of input" << endl;
+		exit(EXIT_FAILURE);
+	}
 
 	parser global_parser;
-	global_parser.parse("example.sl");
+	global_parser.parse(argv[1]);
 	return 0;
 }

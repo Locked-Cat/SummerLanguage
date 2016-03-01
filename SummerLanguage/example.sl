@@ -1,12 +1,22 @@
 extern putc(c)
 extern putd(d)
 
-for i = 0, i < 10, 2 in
-	putd(i)
-putc('\n')
+function power(x, y)
+	if y <> 0 then
+		power(x, y - 1) * x
+	else
+		1
 
-if 1 < 2 then
-	putd(2)
-else
-	putd(1)
+function binary@ 40(x, y)
+	power(x, y)
+
+function unary!(x)
+	if x <> 0 then 
+		0
+	else
+		1
+
+putd(5 @ 3)
+putc('\n')
+putd(!4)
 putc('\n')

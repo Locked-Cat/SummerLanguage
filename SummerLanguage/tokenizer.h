@@ -8,7 +8,7 @@
 
 namespace summer_lang
 {
-	enum token_type
+	enum class token_type
 	{
 		KEYWORD,
 		IDENTIFIER,
@@ -18,7 +18,7 @@ namespace summer_lang
 		UNKNOWN
 	};
 
-	enum keyword_type
+	enum class keyword_type
 	{
 		EXTERN,
 		FUNCTION,
@@ -31,6 +31,24 @@ namespace summer_lang
 		BINARY
 	};
 
+	enum class operator_type
+	{
+		LT,
+		LE,
+		GT,
+		GE,
+		EQ,
+		NEQ,
+		ADD,
+		SUB,
+		MUL,
+		DIV,
+		LBRACKET,
+		RBRACKET,
+		COMM,
+		ASSIGN,
+		UNKNOWN
+	};
 
 	class token
 	{
@@ -116,12 +134,15 @@ namespace summer_lang
 		: public token
 	{
 	private:
-		char op_;
+		operator_type op_type_;
+		std::string op_;
 	public:
-		using value_type = char;
+		using value_type = operator_type;
+		using op_type = std::string;
 
-		op(char op_name)
-			: op_(op_name)
+		op(operator_type op_type, const std::string & op)
+			: op_type_(op_type)
+			, op_(op)
 		{
 		}
 
@@ -131,6 +152,11 @@ namespace summer_lang
 		}
 
 		value_type get_value() const
+		{
+			return op_type_;
+		}
+
+		op_type get_op() const
 		{
 			return op_;
 		}
@@ -177,12 +203,21 @@ namespace summer_lang
 	};
 
 	template <typename Object, typename Token>
-	typename Object::value_type get_value(std::unique_ptr<Token> & tok)
+	typename Object::value_type get_value(const std::unique_ptr<Token> & tok)
 	{
 		auto ptr = dynamic_cast<Object *>(tok.get());
 		if (ptr != nullptr)
 			return ptr->get_value();
 		throw token_type_mismatch(typeid(Token).name(), typeid(Object).name());
+	}
+
+	template <typename Token, typename Object = op>
+	typename Object::op_type get_op(const std::unique_ptr<Token> & tok)
+	{
+		auto ptr = dynamic_cast<op *>(tok.get());
+		if (ptr != nullptr)
+			return ptr->get_op();
+		throw token_type_mismatch(typeid(Token).name(), typeid(op).name());
 	}
 
 	class tokenizer

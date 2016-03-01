@@ -63,11 +63,13 @@ namespace summer_lang
 	class binary_expression_ast
 		: public ast
 	{
-		char op_;
+		op::op_type op_;
+		op::value_type type_;
 		std::unique_ptr<ast> left_, right_;
 	public:
-		binary_expression_ast(char op, std::unique_ptr<ast> left,  std::unique_ptr<ast> right)
+		binary_expression_ast(op::op_type op, op::value_type type, std::unique_ptr<ast> left,  std::unique_ptr<ast> right)
 			: op_(op)
+			, type_(type)
 			, left_(std::move(left))
 			, right_(std::move(right))
 		{
@@ -125,21 +127,62 @@ namespace summer_lang
 		virtual llvm::Value * codegen() override;
 	};
 
+	class unary_expression_ast
+		: public ast
+	{
+		op::op_type op_;
+		std::unique_ptr<ast>  expr_;
+	public:
+		unary_expression_ast(op::op_type op, std::unique_ptr<ast> expr)
+			: op_(std::move(op))
+			, expr_(std::move(expr))
+		{
+		}
+
+		virtual llvm::Value * codegen() override;
+	};
+
 	class prototype_ast
 	{
 		std::string name_;
 		std::vector<std::string> args_;
+
+		bool is_operator_;
+		int precedence_;
 	public:
-		prototype_ast(const std::string & name, std::vector<std::string> args)
+		prototype_ast(const std::string & name, std::vector<std::string> args, bool is_operator, int precedence)
 			: name_(name)
 			, args_(std::move(args))
+			, is_operator_(is_operator_)
+			, precedence_(precedence)
 		{
 		}
 
 		llvm::Function * codegen();
-		const std::string & get_name() const
+		const std::string get_name() const
 		{
 			return name_;
+		}
+
+		bool is_unary_op() const
+		{
+			return is_operator_ && args_.size() == 1;
+		}
+
+		bool is_binary_op() const
+		{
+			return is_operator_ && args_.size() == 2;
+		}
+
+		op::op_type get_operator_name() const
+		{
+			assert(is_unary_op() || is_binary_op());
+			return name_.substr(name_.size() - 1);
+		}
+
+		int get_binary_op_precedence() const
+		{
+			return precedence_;
 		}
 	};
 
@@ -160,14 +203,16 @@ namespace summer_lang
 	static llvm::IRBuilder<> global_builder(llvm::getGlobalContext());
 	static std::map<std::string, llvm::Value *> global_named_values;
 	static std::unique_ptr<MCJIT_helper> global_JIT_helper;
+	static std::map<op::op_type, int> global_op_precedence;
+
+	int get_op_precedence(op::op_type op);
+	void set_op_precedence(op::op_type op, int precedence);
 
 	class parser
 	{
-		std::map<char, int> precedence_;
 		std::unique_ptr<token> current_token_;
 		std::unique_ptr<tokenizer> p_tokenizer_;
 
-		int get_op_precedence_(char op);
 		void get_next_token_();
 
 		std::unique_ptr<ast> parse_number_();
@@ -178,6 +223,7 @@ namespace summer_lang
 		std::unique_ptr<ast> parse_bin_op_right_(int expr_precedence, std::unique_ptr<ast> left);
 		std::unique_ptr<ast> parse_if_();
 		std::unique_ptr<ast> parse_for_();
+		std::unique_ptr<ast> parse_unary_();
 
 		std::unique_ptr<prototype_ast> parse_prototype_();
 		std::unique_ptr<function_ast> parse_function_();

@@ -11,10 +11,17 @@ namespace summer_lang
 		auto & context = llvm::getGlobalContext();
 		global_JIT_helper = std::make_unique<MCJIT_helper>(context);
 
-		precedence_['<'] = 10;
-		precedence_['+'] = 20;
-		precedence_['-'] = 20;
-		precedence_['*'] = 49;
+		global_op_precedence["<"] = 10;
+		global_op_precedence[">"] = 10;
+		global_op_precedence[">="] = 10;
+		global_op_precedence["<="] = 10;
+		global_op_precedence["=="] = 10;
+		global_op_precedence["<>"] = 10;
+
+		global_op_precedence["+"] = 20;
+		global_op_precedence["-"] = 20;
+		global_op_precedence["*"] = 40;
+		global_op_precedence["/"] = 40;
 
 		lib::import();
 	}
@@ -25,7 +32,7 @@ namespace summer_lang
 		{
 			if (auto ir = proto_ast->codegen())
 			{
-				ir->dump();
+				//ir->dump();
 			}
 		}
 		else
@@ -38,6 +45,7 @@ namespace summer_lang
 		{
 			if (auto ir = func_ast->codegen())
 			{
+				//ir->dump();
 			}
 		}
 		else
@@ -50,6 +58,7 @@ namespace summer_lang
 		{
 			if (auto ir = func_ast->codegen())
 			{
+				//ir->dump();
 				auto p_function = (double(*)())(intptr_t)global_JIT_helper->get_pointer_to_function(ir);
 				p_function();
 			}
@@ -103,11 +112,16 @@ namespace summer_lang
 		current_token_ = std::move(p_tokenizer_->get_token());
 	}
 
-	int parser::get_op_precedence_(char op)
+	int get_op_precedence(op::op_type op)
 	{
-		if (precedence_.find(op) != precedence_.end())
-			return precedence_[op];
+		if (global_op_precedence.find(op) != global_op_precedence.end())
+			return global_op_precedence[op];
 		return -1;
+	}
+
+	void set_op_precedence(op::op_type op, int precedence)
+	{
+		global_op_precedence[op] = precedence;
 	}
 
 	std::unique_ptr<ast> parser::parse_number_()
@@ -125,7 +139,7 @@ namespace summer_lang
 		if (!result)
 			return result;
 
-		if (current_token_->get_type() != token_type::OPERATOR || get_value<op>(current_token_) != ')')
+		if (current_token_->get_type() != token_type::OPERATOR || get_value<op>(current_token_) != operator_type::RBRACKET)
 			return print_error<std::unique_ptr<ast>>("Expected a ')'");
 		get_next_token_();
 		return result;
@@ -136,12 +150,12 @@ namespace summer_lang
 		auto name = get_value<identifier>(current_token_);
 
 		get_next_token_();
-		if (current_token_->get_type() != token_type::OPERATOR || get_value<op>(current_token_) != '(')
+		if (current_token_->get_type() != token_type::OPERATOR || get_value<op>(current_token_) != operator_type::LBRACKET)
 			return std::make_unique<variable_ast>(name);
 		
 		get_next_token_();
 		std::vector<std::unique_ptr<ast>> args;
-		if (current_token_->get_type() != token_type::OPERATOR || get_value<op>(current_token_) != ')')
+		if (current_token_->get_type() != token_type::OPERATOR || get_value<op>(current_token_) != operator_type::RBRACKET)
 		{
 			while (true)
 			{
@@ -150,10 +164,10 @@ namespace summer_lang
 					return nullptr;
 				args.push_back(std::move(arg));
 
-				if (current_token_->get_type() == token_type::OPERATOR && get_value<op>(current_token_) == ')')
+				if (current_token_->get_type() == token_type::OPERATOR && get_value<op>(current_token_) == operator_type::RBRACKET)
 					break;
 
-				if (current_token_->get_type() != token_type::OPERATOR ||  get_value<op>(current_token_) != ',')
+				if (current_token_->get_type() != token_type::OPERATOR ||  get_value<op>(current_token_) != operator_type::COMM)
 					return print_error<std::unique_ptr<ast>>("Expect a ')' or ',' in argument list");
 
 				get_next_token_();
@@ -185,7 +199,7 @@ namespace summer_lang
 			}
 		}
 		case token_type::OPERATOR:
-			if (get_value<op>(current_token_) == '(')
+			if (get_value<op>(current_token_) == operator_type::LBRACKET)
 				return parse_parenthesis_();
 			else
 				break;
@@ -197,7 +211,7 @@ namespace summer_lang
 
 	std::unique_ptr<ast> parser::parse_expression_()
 	{
-		auto left = parse_primary_();
+		auto left = parse_unary_();
 		if (!left)
 			return nullptr;
 
@@ -210,21 +224,22 @@ namespace summer_lang
 		{ 
 			if (current_token_->get_type() == token_type::OPERATOR)
 			{
-				auto current_op = get_value<op>(current_token_);
-				auto current_precedence = get_op_precedence_(current_op);
+				auto current_op = get_op(current_token_);
+				auto current_op_type = get_value<op>(current_token_);
+				auto current_precedence = get_op_precedence(current_op);
 
 				if (current_precedence < expr_precedence)
 					return left;
 
 				get_next_token_();
-				auto right = parse_primary_();
+				auto right = parse_unary_();
 				if (!right)
 					return nullptr;
 
 				if (current_token_->get_type() == token_type::OPERATOR)
 				{
-					auto next_op = get_value<op>(current_token_);
-					auto next_precedence = get_op_precedence_(next_op);
+					auto next_op = get_op(current_token_);
+					auto next_precedence = get_op_precedence(next_op);
 
 					if (current_precedence < next_precedence)
 					{
@@ -234,7 +249,7 @@ namespace summer_lang
 					}
 				}
 
-				left = std::make_unique<binary_expression_ast>(current_op, std::move(left), std::move(right));
+				left = std::make_unique<binary_expression_ast>(current_op,  current_op_type, std::move(left), std::move(right));
 			}
 			else
 				return  left;
@@ -250,7 +265,7 @@ namespace summer_lang
 			return nullptr;
 
 		if (current_token_->get_type() != token_type::KEYWORD || get_value<keyword>(current_token_) != keyword_type::THEN)
-			return print_error<std::unique_ptr<ast>>("Expected then");
+			return print_error<std::unique_ptr<ast>>("Expected \'then\' keyword");
 		get_next_token_();
 
 		auto then_part = parse_expression_();
@@ -258,7 +273,7 @@ namespace summer_lang
 			return nullptr;
 
 		if (current_token_->get_type() != token_type::KEYWORD || get_value<keyword>(current_token_) != keyword_type::ELSE)
-			return print_error<std::unique_ptr<ast>>("Expected else");
+			return print_error<std::unique_ptr<ast>>("Expected \'else\' keyword");
 		get_next_token_();
 
 		auto else_part = parse_expression_();
@@ -278,7 +293,7 @@ namespace summer_lang
 		auto var_name = get_value<identifier>(current_token_);
 		get_next_token_();
 
-		if (current_token_ ->get_type() != token_type::OPERATOR || get_value<op>(current_token_) != '=')
+		if (current_token_ ->get_type() != token_type::OPERATOR || get_value<op>(current_token_) != operator_type::ASSIGN)
 			return print_error<std::unique_ptr<ast>>("Expected a '=' after for");
 		get_next_token_();
 
@@ -286,7 +301,7 @@ namespace summer_lang
 		if (!start)
 			return nullptr;
 
-		if (current_token_ ->get_type() != token_type::OPERATOR ||get_value<op>(current_token_) != ',')
+		if (current_token_ ->get_type() != token_type::OPERATOR ||get_value<op>(current_token_) != operator_type::COMM)
 			return print_error<std::unique_ptr<ast>>("Expected a ',' between parts of for");
 		get_next_token_();
 	
@@ -295,7 +310,7 @@ namespace summer_lang
 			return nullptr;
 
 		std::unique_ptr<ast> step;
-		if (current_token_->get_type() == token_type::OPERATOR && get_value<op>(current_token_) == ',')
+		if (current_token_->get_type() == token_type::OPERATOR && get_value<op>(current_token_) == operator_type::COMM)
 		{
 			get_next_token_();
 			step = parse_expression_();
@@ -309,28 +324,78 @@ namespace summer_lang
 			return print_error<std::unique_ptr<ast>>("Expected \"in\" between head and body of for");
 		get_next_token_();
 		
-		auto body = parse_primary_();
+		auto body = parse_expression_();
 		if (!body)
 			return nullptr;
 
 		return std::make_unique<for_expression_ast>(var_name, std::move(start), std::move(end), std::move(step), std::move(body));
 	}
 
+	std::unique_ptr<ast> parser::parse_unary_()
+	{
+		if (current_token_->get_type() != token_type::OPERATOR || get_value<op>(current_token_) != operator_type::UNKNOWN)
+			return parse_primary_();
+
+		auto op = get_op(current_token_);
+		get_next_token_();
+		if (auto expr = parse_unary_())
+			return std::make_unique<unary_expression_ast>(op, std::move(expr));
+		return nullptr;
+	}
+
 	std::unique_ptr<prototype_ast> parser::parse_prototype_()
 	{
-		if (current_token_ -> get_type() != token_type::IDENTIFIER)
-			return print_error<std::unique_ptr<prototype_ast>>("Expected function name in prototype");
+		std::string name;
+		int kind = 0;		//0 = identifier, 1 = unary, 2 = binary
+		int precedence = 20;		//for binary operator
 
-		auto name = get_value<identifier>(current_token_);
-		get_next_token_();
+		switch (current_token_->get_type())
+		{
+		case token_type::IDENTIFIER:
+			name = get_value<identifier>(current_token_);
+			kind = 0;
+			get_next_token_();
+			break;
+		case token_type::KEYWORD:
+			switch (get_value<keyword>(current_token_))
+			{
+			case keyword_type::BINARY:
+				get_next_token_();
+				if (current_token_->get_type() != token_type::OPERATOR || get_value<op>(current_token_) != operator_type::UNKNOWN)
+					return print_error<std::unique_ptr<prototype_ast>>("Expected a user-defined operator");
+				name = "binary" + get_op(current_token_);
+				kind = 2;
+				get_next_token_();
 
-		if (current_token_->get_type() != token_type::OPERATOR || get_value<op>(current_token_) != '(')
+				if (current_token_->get_type() == token_type::NUMBER)
+				{
+					precedence = get_value<number>(current_token_);
+					get_next_token_();
+				}
+				break;
+			case keyword_type::UNARY:
+				get_next_token_();
+				if (current_token_->get_type() != token_type::OPERATOR || get_value<op>(current_token_) != operator_type::UNKNOWN)
+					return print_error<std::unique_ptr<prototype_ast>>("Expected a user-defined operator");
+				name = "unary" + get_op(current_token_);
+				kind = 1;
+				get_next_token_();
+				break;
+			default:
+				return print_error<std::unique_ptr<prototype_ast>>("Expected \"binary\" or \"unary\" keyword");
+			}
+			break;
+		default:
+			return print_error<std::unique_ptr<prototype_ast>>("Expected a function name or user-define operator");
+		}
+
+		if (current_token_->get_type() != token_type::OPERATOR || get_value<op>(current_token_) != operator_type::LBRACKET)
 			return print_error<std::unique_ptr<prototype_ast>>("Expected '(' in prototype");
 		get_next_token_();
 
 		std::vector<std::string> args;
 
-		if (current_token_->get_type() != token_type::OPERATOR || get_value<op>(current_token_) != ')')
+		if (current_token_->get_type() != token_type::OPERATOR || get_value<op>(current_token_) != operator_type::RBRACKET)
 		{
 			while (true)
 			{
@@ -341,17 +406,21 @@ namespace summer_lang
 				args.push_back(arg);
 				get_next_token_();
 
-				if (current_token_->get_type() == token_type::OPERATOR && get_value<op>(current_token_) == ')')
+				if (current_token_->get_type() == token_type::OPERATOR && get_value<op>(current_token_) == operator_type::RBRACKET)
 					break;
 
-				if (current_token_->get_type() != token_type::OPERATOR || get_value<op>(current_token_) != ',')
+				if (current_token_->get_type() != token_type::OPERATOR || get_value<op>(current_token_) != operator_type::COMM)
 					return print_error<std::unique_ptr<prototype_ast>>("Expect a ')' or ',' in prototype");
 
 				get_next_token_();
 			}
 		}
 		get_next_token_();
-		return std::make_unique<prototype_ast>(name, std::move(args));
+
+		if (kind && kind != args.size())
+			return print_error<std::unique_ptr<prototype_ast>>("Invalid number of operands of operator");
+
+		return std::make_unique<prototype_ast>(name, std::move(args), kind != 0, precedence);
 	}
 
 	std::unique_ptr<function_ast> parser::parse_function_()
@@ -378,7 +447,7 @@ namespace summer_lang
 
 	std::unique_ptr<function_ast> parser::parse_top_level_expr_()
 	{
-		auto prototype = std::make_unique<prototype_ast>("", std::vector<std::string>());
+		auto prototype = std::make_unique<prototype_ast>("", std::vector<std::string>(), false, -1);
 		auto expression = parse_expression_();
 		if (!expression)
 			return nullptr;
@@ -407,22 +476,56 @@ namespace summer_lang
 		if (!l_value || !r_value)
 			return nullptr;
 
-		switch (op_)
+		switch (type_)
 		{
-		case '+':
+		case operator_type::ADD:
 			return global_builder.CreateFAdd(l_value, r_value, "addtmp");
-		case '-':
+		case operator_type::SUB:
 			return global_builder.CreateFSub(l_value, r_value, "subtmp");
-		case '*':
+		case operator_type::MUL:
 			return global_builder.CreateFMul(l_value, r_value, "multmp");
-		case '<':
+		case operator_type::DIV:
+			return global_builder.CreateFDiv(l_value, r_value, "divtmp");
+		case operator_type::LT:
 		{
-			auto l = global_builder.CreateFCmpULT(l_value, r_value, "cmptmp");
-			return global_builder.CreateUIToFP(l, llvm::Type::getDoubleTy(llvm::getGlobalContext()), "booltmp");
+			auto tmp = global_builder.CreateFCmpULT(l_value, r_value, "cmptmp");
+			return global_builder.CreateUIToFP(tmp, llvm::Type::getDoubleTy(llvm::getGlobalContext()), "booltmp");
+		}
+		case operator_type::GT:
+		{
+			auto tmp = global_builder.CreateFCmpUGT(l_value, r_value, "cmptmp");
+			return global_builder.CreateUIToFP(tmp, llvm::Type::getDoubleTy(llvm::getGlobalContext()), "booltmp");
+		}
+		case operator_type::LE:
+		{
+			auto tmp = global_builder.CreateFCmpULE(l_value, r_value, "cmptmp");
+			return global_builder.CreateUIToFP(tmp, llvm::Type::getDoubleTy(llvm::getGlobalContext()), "booltmp");
+		}
+		case operator_type::GE:
+		{
+			auto tmp = global_builder.CreateFCmpUGE(l_value, r_value, "cmptmp");
+			return global_builder.CreateUIToFP(tmp, llvm::Type::getDoubleTy(llvm::getGlobalContext()), "booltmp");
+		}
+		case operator_type::NEQ:
+		{
+			auto tmp = global_builder.CreateFCmpUNE(l_value, r_value, "cmptmp");
+			return global_builder.CreateUIToFP(tmp, llvm::Type::getDoubleTy(llvm::getGlobalContext()), "booltmp");
+		}
+		case operator_type::EQ:
+		{
+			auto tmp = global_builder.CreateFCmpUEQ(l_value, r_value, "cmptmp");
+			return global_builder.CreateUIToFP(tmp, llvm::Type::getDoubleTy(llvm::getGlobalContext()), "booltmp");
 		}
 		default:
-			return print_error<llvm::Value *>("Invalid binary operator");
+			break;
 		}
+
+		auto function = global_JIT_helper->get_function("binary" + op_);
+		if (!function)
+			return print_error<llvm::Value *>("Unknown operator");
+
+		llvm::Value * args[] = { l_value, r_value };
+		return global_builder.CreateCall(function, args, "binop");
 	}
 
 	llvm::Value * call_expression_ast::codegen()
@@ -481,6 +584,9 @@ namespace summer_lang
 		auto function = prototype_->codegen();
 		if (!function)
 			return nullptr;
+
+		if (prototype_->is_binary_op())
+			set_op_precedence(prototype_->get_operator_name(), prototype_->get_binary_op_precedence());
 
 		auto basic_block = llvm::BasicBlock::Create(llvm::getGlobalContext(), "entry", function);
 		global_builder.SetInsertPoint(basic_block);
@@ -597,5 +703,19 @@ namespace summer_lang
 		after_basic_block = global_builder.GetInsertBlock();
 
 		return llvm::Constant::getNullValue(llvm::Type::getDoubleTy(llvm::getGlobalContext()));
+	}
+
+	llvm::Value * unary_expression_ast::codegen()
+	{
+		auto function = global_JIT_helper->get_function("unary" + op_);
+		if (!function)
+			return print_error<llvm::Value *>("Unknown unary operator");
+
+		auto operand = expr_->codegen();
+		if (!operand)
+			return nullptr;
+		
+		llvm::Value * args[] = { operand };
+		return global_builder.CreateCall(function, args, "unaryop");
 	}
 }

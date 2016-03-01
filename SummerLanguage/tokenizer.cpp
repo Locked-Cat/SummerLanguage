@@ -20,7 +20,7 @@ namespace summer_lang
             
         if(last_char == '#')
         {
-             while((last_char = source_code_.get()) != EOF && (last_char != '\r' || last_char != '\n'));
+            while((last_char = source_code_.get()) != EOF && (last_char != '\r' || last_char != '\n'));
             return get_token();    
         }
 
@@ -112,8 +112,94 @@ namespace summer_lang
 			}
 		}
 
-		auto result = std::make_unique<op>(last_char);
-		last_char = source_code_.get();
+		operator_type type;
+		auto need_eat = true;
+		auto operator_str = std::string();
+
+		switch (last_char)
+		{
+		case '<':
+			type = operator_type::LT;
+			operator_str += '<';
+			last_char = source_code_.get();
+			if (last_char != '=' && last_char != '>')
+				need_eat = false;
+			else
+			{
+				if (last_char == '=')
+				{
+					operator_str += '=';
+					type = operator_type::LE;
+				}
+				else
+				{
+					operator_str += '>';
+					type = operator_type::NEQ;
+				}
+			}
+			break;
+		case '>':
+			type = operator_type::GT;
+			operator_str += '>';
+			last_char = source_code_.get();
+			if (last_char != '=')
+				need_eat = false;
+			else
+			{
+				operator_str += '=';
+				type = operator_type::GE;
+			}
+			break;
+		case '+':
+			type = operator_type::ADD;
+			operator_str += '+';
+			break;
+		case '-':
+			type = operator_type::SUB;
+			operator_str += '-';
+			break;
+		case '*':
+			type = operator_type::MUL;
+			operator_str += '*';
+			break;
+		case '/':
+			type = operator_type::DIV;
+			operator_str += '/';
+			break;
+		case '(':
+			type = operator_type::LBRACKET;
+			operator_str += '(';
+			break;
+		case ')':
+			type = operator_type::RBRACKET;
+			operator_str += ')';
+			break;
+		case ',':
+			type = operator_type::COMM;
+			operator_str += ',';
+			break;
+		case '=':
+			type = operator_type::ASSIGN;
+			operator_str += '=';
+			last_char = source_code_.get();
+			if (last_char != '=')
+				need_eat = false;
+			else
+			{
+				operator_str += '=';
+				type = operator_type::EQ;
+			}
+			break;
+		default:
+			type = operator_type::UNKNOWN;
+			operator_str += last_char;
+			break;
+		}
+
+		if (need_eat)
+			last_char = source_code_.get();
+
+		auto result = std::make_unique<op>(type, operator_str);
 		return std::move(result);
 	}
 }
