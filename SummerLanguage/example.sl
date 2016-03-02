@@ -21,7 +21,7 @@ function main()
 
 function test()
 	var i = 2, j = 1 in
-		var p =3, q = 2 in
+		var p = 3, q = 2 in
 			p + q + i + j
 
 putd(test())
