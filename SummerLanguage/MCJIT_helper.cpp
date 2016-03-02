@@ -56,7 +56,7 @@ namespace summer_lang
 			std::string error_str;
 			auto new_engine = llvm::EngineBuilder(std::unique_ptr<llvm::Module>(open_module_))
 				.setErrorStr(&error_str)
-				.setMCJITMemoryManager(std::unique_ptr<llvm::SectionMemoryManager>())
+				.setMCJITMemoryManager(std::make_unique<HelpingMemoryManager>(this))
 				.create();
 			if (!new_engine)
 			{
@@ -97,5 +97,18 @@ namespace summer_lang
 		if (!name.length())
 			return "anno_func";
 		return name;
+	}
+
+	uint64_t HelpingMemoryManager::getSymbolAddress(const std::string & name)
+	{
+		auto p_func = llvm::SectionMemoryManager::getSymbolAddress(name);
+		if (p_func)
+			return p_func;
+
+		p_func = (uint64_t)helper_->get_symbol_address(name);
+		if (!p_func)
+			return print_error<uint64_t>("Program used extern function '" + name + "' which could not be resolved!");
+
+		return p_func;
 	}
 }

@@ -12,6 +12,6 @@ namespace summer_lang
 	T print_error(const std::string & message, std::ostream & os = std::cerr)
 	{
 		os << message << std::endl;
-		return nullptr;
+		return T();
 	}
 }

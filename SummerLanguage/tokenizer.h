@@ -28,7 +28,8 @@ namespace summer_lang
 		FOR,
 		IN,
 		UNARY,
-		BINARY
+		BINARY,
+		VAR
 	};
 
 	enum class operator_type

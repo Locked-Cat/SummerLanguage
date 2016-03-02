@@ -20,7 +20,7 @@ namespace summer_lang
             
         if(last_char == '#')
         {
-            while((last_char = source_code_.get()) != EOF && (last_char != '\r' || last_char != '\n'));
+            while((last_char = source_code_.get()) != EOF && (last_char != '\r' && last_char != '\n'));
             return get_token();    
         }
 
@@ -58,6 +58,9 @@ namespace summer_lang
 
 			if (str == "binary")
 				return std::make_unique<keyword>(keyword_type::BINARY);
+
+			if (str == "var")
+				return std::make_unique<keyword>(keyword_type::VAR);
 
 			return std::make_unique<identifier>(str);
 		}

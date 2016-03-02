@@ -11,6 +11,7 @@ namespace summer_lang
 		auto & context = llvm::getGlobalContext();
 		global_JIT_helper = std::make_unique<MCJIT_helper>(context);
 
+		global_op_precedence["="] = 2;
 		global_op_precedence["<"] = 10;
 		global_op_precedence[">"] = 10;
 		global_op_precedence[">="] = 10;
@@ -124,6 +125,12 @@ namespace summer_lang
 		global_op_precedence[op] = precedence;
 	}
 
+	llvm::AllocaInst * global_create_alloca(llvm::Function * parent, const std::string & name)
+	{
+		llvm::IRBuilder<> temp_block(&(parent->getEntryBlock()), parent->getEntryBlock().begin());
+		return temp_block.CreateAlloca(llvm::Type::getDoubleTy(llvm::getGlobalContext()), 0, name.c_str());
+	}
+
 	std::unique_ptr<ast> parser::parse_number_()
 	{
 		auto result = std::make_unique<number_ast>(get_value<number>(current_token_));
@@ -194,9 +201,12 @@ namespace summer_lang
 				return parse_if_();
 			case keyword_type::FOR:
 				return parse_for_();
+			case keyword_type::VAR:
+				return parse_var_();
 			default:
 				break;
 			}
+			break;
 		}
 		case token_type::OPERATOR:
 			if (get_value<op>(current_token_) == operator_type::LBRACKET)
@@ -343,6 +353,50 @@ namespace summer_lang
 		return nullptr;
 	}
 
+	std::unique_ptr<ast> parser::parse_var_()
+	{
+		get_next_token_();
+
+		std::vector<std::pair<std::string, std::unique_ptr<ast>>> var_names;
+		if (current_token_->get_type() != token_type::IDENTIFIER)
+			return print_error<std::unique_ptr<ast>>("Expected identifier after var");
+
+		while (true)
+		{
+			auto name = get_value<identifier>(current_token_);
+			get_next_token_();
+
+			auto init = std::unique_ptr<ast>();
+			if (current_token_->get_type() == token_type::OPERATOR && get_value<op>(current_token_) == operator_type::ASSIGN)
+			{
+				get_next_token_();
+
+				init = parse_expression_();
+				if (!init)
+					return nullptr;
+			}
+
+			var_names.push_back(std::make_pair(name, std::move(init)));
+
+			if (current_token_->get_type() != token_type::OPERATOR || get_value<op>(current_token_) != operator_type::COMM)
+				break;
+			get_next_token_();
+			
+			if (current_token_->get_type() != token_type::IDENTIFIER)
+				return print_error<std::unique_ptr<ast>>("Expected identifier list after var");
+		}
+
+		if (current_token_->get_type() != token_type::KEYWORD || get_value<keyword>(current_token_) != keyword_type::IN)
+			return print_error<std::unique_ptr<ast>>("Expected 'in' keyword after 'var'");
+
+		get_next_token_();
+		auto body = parse_expression_();
+		if (!body)
+			return nullptr;
+
+		return std::make_unique<var_ast>(std::move(var_names), std::move(body));
+	}
+
 	std::unique_ptr<prototype_ast> parser::parse_prototype_()
 	{
 		std::string name;
@@ -464,8 +518,8 @@ namespace summer_lang
 	{
 		auto value = global_named_values[name_];
 		if (!value)
-			return print_error<llvm::Value *>("Unknown variable name");
-		return value;
+			return print_error<llvm::Value *>("Unknown variable name \'" + name_ + "\'");
+		return global_builder.CreateLoad(value);
 	}
 
 	llvm::Value * binary_expression_ast::codegen()
@@ -515,6 +569,17 @@ namespace summer_lang
 		{
 			auto tmp = global_builder.CreateFCmpUEQ(l_value, r_value, "cmptmp");
 			return global_builder.CreateUIToFP(tmp, llvm::Type::getDoubleTy(llvm::getGlobalContext()), "booltmp");
+		}
+		case operator_type::ASSIGN:
+		{
+			auto tmp = dynamic_cast<variable_ast *>(left_.get());
+			if (!tmp)
+				return print_error<llvm::Value *>("Destination of '=' must be a variable");
+			auto dest = global_named_values[tmp->get_name()];
+			if (!dest)
+				return print_error<llvm::Value *>("Unknown variable name '" + tmp->get_name() + "'");
+			global_builder.CreateStore(r_value, dest);
+			return dest;
 		}
 		default:
 			break;
@@ -569,10 +634,7 @@ namespace summer_lang
 
 		auto id = 0;
 		for (auto & arg : function->args())
-		{
-			arg.setName(args_[id]);
-			global_named_values[args_[id++]] = &arg;
-		}
+			arg.setName(args_[id++]);
 
 		return function;
 	}
@@ -593,7 +655,11 @@ namespace summer_lang
 
 		global_named_values.clear();
 		for (auto & arg : function->args())
-			global_named_values[arg.getName()] = &arg;
+		{
+			auto alloca_inst = global_create_alloca(function, arg.getName());
+			global_builder.CreateStore(&arg, alloca_inst);
+			global_named_values[arg.getName()] = alloca_inst;
+		}
 
 		if (auto ret_value = body_->codegen())
 		{
@@ -652,25 +718,26 @@ namespace summer_lang
 
 	llvm::Value * for_expression_ast::codegen()
 	{
+		auto parent = global_builder.GetInsertBlock()->getParent();
+		auto alloca_inst = global_create_alloca(parent, var_name_);
+
+		auto old_val = global_named_values[var_name_];
+		global_named_values[var_name_] = alloca_inst;
+		
 		auto start_value = start_->codegen();
 		if (!start_value)
 			return nullptr;
 
-		auto parent = global_builder.GetInsertBlock()->getParent();
-		auto parent_basic_block = global_builder.GetInsertBlock();
+		global_builder.CreateStore(start_value, alloca_inst);
 
+		auto parent_basic_block = global_builder.GetInsertBlock();
 		auto cmp_basic_block = llvm::BasicBlock::Create(llvm::getGlobalContext(), "cmp", parent);
 		auto body_basic_block = llvm::BasicBlock::Create(llvm::getGlobalContext(), "body");
 		auto after_basic_block = llvm::BasicBlock::Create(llvm::getGlobalContext(), "after");
 
 		global_builder.CreateBr(cmp_basic_block);
 
-		global_builder.SetInsertPoint(cmp_basic_block);		
-		auto variable = global_builder.CreatePHI(llvm::Type::getDoubleTy(llvm::getGlobalContext()), 2, var_name_.c_str());
-		variable->addIncoming(start_value, parent_basic_block);
-		auto old_val = global_named_values[var_name_];
-		global_named_values[var_name_] = variable;
-
+		global_builder.SetInsertPoint(cmp_basic_block);	
 		auto end_cond = end_->codegen();												  
 		if (!end_cond)
 			return false;
@@ -688,8 +755,9 @@ namespace summer_lang
 		if (!step_value)
 			return nullptr;
 
-		auto next_value = global_builder.CreateFAdd(variable, step_value, "next_var");
-		variable->addIncoming(next_value, body_basic_block);
+		auto current_value = global_builder.CreateLoad(alloca_inst);
+		auto next_value = global_builder.CreateFAdd(current_value, step_value, "next_var");
+		global_builder.CreateStore(next_value, alloca_inst);
 		global_builder.CreateBr(cmp_basic_block);
 		body_basic_block = global_builder.GetInsertBlock();
 
@@ -717,5 +785,42 @@ namespace summer_lang
 		
 		llvm::Value * args[] = { operand };
 		return global_builder.CreateCall(function, args, "unaryop");
+	}
+
+	llvm::Value * var_ast::codegen()
+	{
+		std::vector<llvm::AllocaInst *> old_bindings;
+
+		auto parent = global_builder.GetInsertBlock()->getParent();
+		for (auto i = var_names_.begin(); i != var_names_.end(); ++i)
+		{
+			auto var_name = i->first;
+			auto var_init = i->second.get();
+
+			llvm::Value * init_value;
+			if (var_init)
+			{
+				init_value = var_init->codegen();
+				if (!init_value)
+					return nullptr;
+			}
+			else
+				init_value = llvm::ConstantFP::get(llvm::getGlobalContext(), llvm::APFloat(0.0));
+
+			auto alloca_inst = global_create_alloca(parent, var_name);
+			global_builder.CreateStore(init_value, alloca_inst);
+
+			old_bindings.push_back(global_named_values[var_name]);
+			global_named_values[var_name] = alloca_inst;
+		}
+
+		auto body_value = body_->codegen();
+		if (!body_value)
+			return nullptr;
+
+		for (auto i = 0; i != var_names_.size(); ++i)
+			global_named_values[var_names_[i].first] = old_bindings[i];
+
+		return body_value;
 	}
 }

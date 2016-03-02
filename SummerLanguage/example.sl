@@ -1,22 +1,28 @@
 extern putc(c)
 extern putd(d)
 
-function power(x, y)
-	if y <> 0 then
-		power(x, y - 1) * x
-	else
-		1
+function binary;(x, y)
+	y
 
-function binary@ 40(x, y)
-	power(x, y)
+function main()
+	putc('h');
+	putc('e');
+	putc('l');
+	putc('l');
+	putc('o');
+	putc(' ');
+	putc('w');
+	putc('o');
+	putc('r');
+	putc('l');
+	putc('d');
+	putc('!');
+	putc('\n')
 
-function unary!(x)
-	if x <> 0 then 
-		0
-	else
-		1
+function test()
+	var i = 2, j = 1 in
+		var p =3, q = 2 in
+			p + q + i + j
 
-putd(5 @ 3)
-putc('\n')
-putd(!4)
+putd(test())
 putc('\n')

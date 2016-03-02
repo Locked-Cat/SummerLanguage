@@ -16,6 +16,7 @@
 #include <fstream>
 #include <map>
 #include <memory>
+#include <utility>
 
 #include "tokenizer.h"
 #include "MCJIT_helper.h"
@@ -54,6 +55,26 @@ namespace summer_lang
 	public:
 		variable_ast(const std::string & name)
 			: name_(name)
+		{
+		}
+
+		std::string get_name() const
+		{
+			return name_;
+		}
+
+		virtual llvm::Value * codegen() override;
+	};
+
+	class var_ast
+		: public ast
+	{
+		std::vector<std::pair<std::string, std::unique_ptr<ast>>> var_names_;
+		std::unique_ptr<ast> body_;
+	public:
+		var_ast(std::vector<std::pair<std::string, std::unique_ptr<ast>>> var_names, std::unique_ptr<ast> body)
+			: var_names_(std::move(var_names))
+			, body_(std::move(body))
 		{
 		}
 
@@ -201,12 +222,13 @@ namespace summer_lang
 	};
 
 	static llvm::IRBuilder<> global_builder(llvm::getGlobalContext());
-	static std::map<std::string, llvm::Value *> global_named_values;
+	static std::map<std::string, llvm::AllocaInst *> global_named_values;
 	static std::unique_ptr<MCJIT_helper> global_JIT_helper;
 	static std::map<op::op_type, int> global_op_precedence;
 
-	int get_op_precedence(op::op_type op);
-	void set_op_precedence(op::op_type op, int precedence);
+	static int get_op_precedence(op::op_type op);
+	static void set_op_precedence(op::op_type op, int precedence);
+	static llvm::AllocaInst * global_create_alloca(llvm::Function * function, const std::string & name);
 
 	class parser
 	{
@@ -224,6 +246,7 @@ namespace summer_lang
 		std::unique_ptr<ast> parse_if_();
 		std::unique_ptr<ast> parse_for_();
 		std::unique_ptr<ast> parse_unary_();
+		std::unique_ptr<ast> parse_var_();
 
 		std::unique_ptr<prototype_ast> parse_prototype_();
 		std::unique_ptr<function_ast> parse_function_();
