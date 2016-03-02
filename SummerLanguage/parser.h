@@ -48,6 +48,19 @@ namespace summer_lang
 		virtual llvm::Value * codegen() override;
 	};
 
+	class string_ast
+		: public ast
+	{
+		std::string value_;
+	public:
+		string_ast(const std::string & value)
+			: value_(value)
+		{
+		}
+
+		virtual llvm::Value * codegen() override;
+	};
+
 	class variable_ast
 		: public ast
 	{
@@ -69,10 +82,10 @@ namespace summer_lang
 	class var_ast
 		: public ast
 	{
-		std::vector<std::pair<std::string, std::unique_ptr<ast>>> var_names_;
+		std::vector<std::tuple<std::string, std::unique_ptr<ast>, type_categories>> var_names_;
 		std::unique_ptr<ast> body_;
 	public:
-		var_ast(std::vector<std::pair<std::string, std::unique_ptr<ast>>> var_names, std::unique_ptr<ast> body)
+		var_ast(std::vector<std::tuple<std::string, std::unique_ptr<ast>, type_categories>> var_names, std::unique_ptr<ast> body)
 			: var_names_(std::move(var_names))
 			, body_(std::move(body))
 		{
@@ -222,7 +235,7 @@ namespace summer_lang
 	};
 
 	static llvm::IRBuilder<> global_builder(llvm::getGlobalContext());
-	static std::map<std::string, llvm::AllocaInst *> global_named_values;
+	static std::map<std::string, std::pair<llvm::AllocaInst *, llvm::Type *>> global_named_values;
 	static std::unique_ptr<MCJIT_helper> global_JIT_helper;
 	static std::map<op::op_type, int> global_op_precedence;
 

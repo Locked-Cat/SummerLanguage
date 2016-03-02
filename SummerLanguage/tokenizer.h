@@ -8,17 +8,18 @@
 
 namespace summer_lang
 {
-	enum class token_type
+	enum class token_categories
 	{
 		KEYWORD,
 		IDENTIFIER,
-		NUMBER,
+		LITERAL_NUMBER,
+		LITERAL_CHAR,
 		OPERATOR,
-		END,
-		UNKNOWN
+		TYPE,
+		END
 	};
 
-	enum class keyword_type
+	enum class keyword_categories
 	{
 		EXTERN,
 		FUNCTION,
@@ -29,10 +30,17 @@ namespace summer_lang
 		IN,
 		UNARY,
 		BINARY,
-		VAR
+		VAR,
 	};
 
-	enum class operator_type
+	enum class type_categories
+	{
+		CHAR,
+		NUMBER,
+		VOID
+	};
+
+	enum class operator_categories
 	{
 		LT,
 		LE,
@@ -47,34 +55,49 @@ namespace summer_lang
 		LBRACKET,
 		RBRACKET,
 		COMM,
+		COLON,
 		ASSIGN,
+		ARROW,
 		UNKNOWN
 	};
 
 	class token
 	{
+		int row_no_;
 	public:
-		virtual token_type get_type() const = 0;
+		token(int row_no)
+			: row_no_(row_no)
+		{
+		}
+
+		virtual token_categories get_type() const = 0;
+
 		virtual ~token()
 		{
+		}
+
+		int get_position() const
+		{
+			return row_no_;
 		}
 	};
 
 	class keyword
 		: public token
 	{
-		keyword_type keyword_;
+		keyword_categories keyword_;
 	public:
-		using value_type = keyword_type;
+		using value_type = keyword_categories;
 
-		keyword(keyword_type type)
-			: keyword_(type)
+		keyword(keyword_categories type, int row_no)
+			: token(row_no)
+			, keyword_(type)
 		{
 		}
 
-		virtual token_type get_type() const override
+		virtual token_categories get_type() const override
 		{
-			return token_type::KEYWORD;
+			return token_categories::KEYWORD;
 		}
 
 		value_type get_value() const
@@ -83,22 +106,46 @@ namespace summer_lang
 		}
 	};
 
+	class type
+		: public token
+	{
+		type_categories type_;
+	public:
+		using value_type = type_categories;
+
+		type(type_categories type, int row_no)
+			: token(row_no)
+			, type_(type)
+		{
+		}
+
+		virtual token_categories get_type() const override
+		{
+			return token_categories::TYPE;
+		}
+
+		value_type get_value() const
+		{
+			return type_;
+		}
+	};
+
 	class identifier
 		: public token
 	{
-	private:
 		std::string name_;
 	public:
 		using value_type = std::string;
 
-		identifier(const std::string & name)
-			: name_(name)
+		identifier(const std::string & name, int row_no)
+			: token(row_no)
+			, name_(name)
 		{
 		}
 
-		virtual token_type get_type() const override
+		virtual token_categories get_type() const override
 		{
-			return token_type::IDENTIFIER;
+			return token_categories::IDENTIFIER;
 		}
 
 		value_type get_value() const
@@ -107,22 +154,46 @@ namespace summer_lang
 		}
 	};
 
-	class number
+	class literal_number
 		: public token
 	{
-	private:
 		double value_;
 	public:
 		using value_type = double;
 
-		number(double value)
-			: value_(value)
+		literal_number(double value, int row_no)
+			: token(row_no)
+			, value_(value)
 		{
 		}
 
-		virtual token_type get_type() const override
+		virtual token_categories get_type() const override
 		{
-			return token_type::NUMBER;
+			return token_categories::LITERAL_NUMBER;
+		}
+
+		value_type get_value() const
+		{
+			return value_;
+		}
+	};
+
+	class literal_char
+		: public token
+	{
+		char value_;
+	public:
+		using value_type = char;
+
+		literal_char(char value, int row_no)
+			: token(row_no)
+			, value_(value)
+		{
+		}
+
+		virtual token_categories get_type() const override
+		{
+			return token_categories::LITERAL_CHAR;
 		}
 
 		value_type get_value() const
@@ -135,21 +206,22 @@ namespace summer_lang
 		: public token
 	{
 	private:
-		operator_type op_type_;
+		operator_categories op_type_;
 		std::string op_;
 	public:
-		using value_type = operator_type;
+		using value_type = operator_categories;
 		using op_type = std::string;
 
-		op(operator_type op_type, const std::string & op)
-			: op_type_(op_type)
+		op(operator_categories op_type, const std::string & op, int row_no)
+			: token(row_no)
+			, op_type_(op_type)
 			, op_(op)
 		{
 		}
 
-		virtual token_type get_type() const override
+		virtual token_categories get_type() const override
 		{
-			return token_type::OPERATOR;
+			return token_categories::OPERATOR;
 		}
 
 		value_type get_value() const
@@ -169,37 +241,14 @@ namespace summer_lang
 	public:
 		using value_type = void;
 
-		end()
+		end(int row_no)
+			: token(row_no)
 		{
 		}
 
-		virtual token_type get_type() const override
+		virtual token_categories get_type() const override
 		{
-			return token_type::END;
-		}
-	};
-
-	class unknown
-		: public token
-	{
-	public:
-		unknown()
-		{
-		}
-
-		virtual token_type get_type() const override
-		{
-			return token_type::UNKNOWN;
-		}
-	};
-
-	class token_type_mismatch
-		: public std::exception
-	{
-	public:
-		token_type_mismatch(const std::string & src, const std::string & des)
-			: std::exception((src + " to " + des).c_str())
-		{
+			return token_categories::END;
 		}
 	};
 
@@ -209,16 +258,14 @@ namespace summer_lang
 		auto ptr = dynamic_cast<Object *>(tok.get());
 		if (ptr != nullptr)
 			return ptr->get_value();
-		throw token_type_mismatch(typeid(Token).name(), typeid(Object).name());
 	}
 
-	template <typename Token, typename Object = op>
-	typename Object::op_type get_op(const std::unique_ptr<Token> & tok)
+	template <typename Token>
+	op::op_type get_op(const std::unique_ptr<Token> & tok)
 	{
 		auto ptr = dynamic_cast<op *>(tok.get());
 		if (ptr != nullptr)
 			return ptr->get_op();
-		throw token_type_mismatch(typeid(Token).name(), typeid(op).name());
 	}
 
 	class tokenizer

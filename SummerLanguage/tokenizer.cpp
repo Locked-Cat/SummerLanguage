@@ -8,19 +8,23 @@ namespace summer_lang
 	std::unique_ptr<token> tokenizer::get_token()
 	{
 		static int last_char = ' ';
+		static int row_no = 1;
 
 		if (last_char == EOF)
 			return std::make_unique<end>();
 
 		if (std::isspace(last_char))
 		{
-            while ((last_char = source_code_.get()) != EOF && std::isspace(last_char));
+			while ((last_char = source_code_.get()) != EOF && std::isspace(last_char))
+				if (last_char == '\r' || last_char == '\n')
+					row_no++;
             return get_token();   
         }
             
         if(last_char == '#')
         {
             while((last_char = source_code_.get()) != EOF && (last_char != '\r' && last_char != '\n'));
+			row_no++;
             return get_token();    
         }
 
@@ -33,36 +37,45 @@ namespace summer_lang
 				str += last_char;
 
 			if (str == "extern")
-				return std::make_unique<keyword>(keyword_type::EXTERN);
+				return std::make_unique<keyword>(keyword_categories::EXTERN, row_no);
 
 			if (str == "function")
-				return std::make_unique<keyword>(keyword_type::FUNCTION);
+				return std::make_unique<keyword>(keyword_categories::FUNCTION, row_no);
 
 			if (str == "if")
-				return std::make_unique<keyword>(keyword_type::IF);
+				return std::make_unique<keyword>(keyword_categories::IF, row_no);
 
 			if (str == "then")
-				return std::make_unique<keyword>(keyword_type::THEN);
+				return std::make_unique<keyword>(keyword_categories::THEN, row_no);
 
 			if (str == "else")
-				return std::make_unique<keyword>(keyword_type::ELSE);
+				return std::make_unique<keyword>(keyword_categories::ELSE, row_no);
 
 			if (str == "for")
-				return std::make_unique<keyword>(keyword_type::FOR);
+				return std::make_unique<keyword>(keyword_categories::FOR, row_no);
 
 			if (str == "in")
-				return std::make_unique<keyword>(keyword_type::IN);
+				return std::make_unique<keyword>(keyword_categories::IN, row_no);
 
 			if (str == "unary")
-				return std::make_unique<keyword>(keyword_type::UNARY);
+				return std::make_unique<keyword>(keyword_categories::UNARY, row_no);
 
 			if (str == "binary")
-				return std::make_unique<keyword>(keyword_type::BINARY);
+				return std::make_unique<keyword>(keyword_categories::BINARY, row_no);
 
 			if (str == "var")
-				return std::make_unique<keyword>(keyword_type::VAR);
+				return std::make_unique<keyword>(keyword_categories::VAR, row_no);
 
-			return std::make_unique<identifier>(str);
+			if (str == "char")
+				return std::make_unique<type>(type_categories::CHAR, row_no);
+
+			if (str == "number")
+				return std::make_unique<type>(type_categories::NUMBER, row_no);
+
+			if (str == "void")
+				return std::make_unique<type>(type_categories::VOID, row_no);
+
+			return std::make_unique<identifier>(str, row_no);
 		}
 
 		if (std::isdigit(last_char) || last_char == '.')
@@ -74,7 +87,7 @@ namespace summer_lang
 				num_str += last_char;
 
 			auto num = std::strtod(num_str.c_str(), nullptr);
-			return std::make_unique<number>(num);
+			return std::make_unique<literal_number>(num, row_no);
 		}
 
 		if (last_char == '\'')
@@ -87,13 +100,13 @@ namespace summer_lang
 			if (last_char == '\'')
 				last_char = source_code_.get();
 			else
-				return std::make_unique<unknown>();
+				throw lexical_error("Illegal format of character", row_no);
 
-			double ch;
+			char ch;
 			if (ch_str.length() == 1)
 			{
-				ch = static_cast<double>(ch_str[0]);
-				return std::make_unique<number>(ch);
+				ch = ch_str[0];
+				return std::make_unique<literal_char>(ch, row_no);
 			}
 			else
 			{
@@ -104,25 +117,31 @@ namespace summer_lang
 						switch (ch_str[1])
 						{
 						case 'n':
-							ch = static_cast<double>('\n');
-							return std::make_unique<number>(ch);
+							ch = '\n';
+							return std::make_unique<literal_char>(ch, row_no);
+						case 'r':
+							ch = '\r';
+							return std::make_unique<literal_char>(ch, row_no);
+						case 't':
+							ch = '\t';
+							return std::make_unique<literal_char>(ch, row_no);
 						default:
-							break;
+							throw lexical_error("Illegal format of character", row_no);
 						}
 					}
 				}
-				return std::make_unique<unknown>();
+				throw lexical_error("Illegal format of character", row_no);
 			}
 		}
 
-		operator_type type;
+		operator_categories type;
 		auto need_eat = true;
 		auto operator_str = std::string();
 
 		switch (last_char)
 		{
 		case '<':
-			type = operator_type::LT;
+			type = operator_categories::LT;
 			operator_str += '<';
 			last_char = source_code_.get();
 			if (last_char != '=' && last_char != '>')
@@ -132,17 +151,17 @@ namespace summer_lang
 				if (last_char == '=')
 				{
 					operator_str += '=';
-					type = operator_type::LE;
+					type = operator_categories::LE;
 				}
 				else
 				{
 					operator_str += '>';
-					type = operator_type::NEQ;
+					type = operator_categories::NEQ;
 				}
 			}
 			break;
 		case '>':
-			type = operator_type::GT;
+			type = operator_categories::GT;
 			operator_str += '>';
 			last_char = source_code_.get();
 			if (last_char != '=')
@@ -150,39 +169,51 @@ namespace summer_lang
 			else
 			{
 				operator_str += '=';
-				type = operator_type::GE;
+				type = operator_categories::GE;
 			}
 			break;
 		case '+':
-			type = operator_type::ADD;
+			type = operator_categories::ADD;
 			operator_str += '+';
 			break;
+		case ':':
+			type = operator_categories::COLON;
+			operator_str += ':';
+			break;
 		case '-':
-			type = operator_type::SUB;
+			type = operator_categories::SUB;
 			operator_str += '-';
+			last_char = source_code_.get();
+			if (last_char != '>')
+				need_eat = false;
+			else
+			{
+				operator_str += '>';
+				type = operator_categories::ARROW;
+			}
 			break;
 		case '*':
-			type = operator_type::MUL;
+			type = operator_categories::MUL;
 			operator_str += '*';
 			break;
 		case '/':
-			type = operator_type::DIV;
+			type = operator_categories::DIV;
 			operator_str += '/';
 			break;
 		case '(':
-			type = operator_type::LBRACKET;
+			type = operator_categories::LBRACKET;
 			operator_str += '(';
 			break;
 		case ')':
-			type = operator_type::RBRACKET;
+			type = operator_categories::RBRACKET;
 			operator_str += ')';
 			break;
 		case ',':
-			type = operator_type::COMM;
+			type = operator_categories::COMM;
 			operator_str += ',';
 			break;
 		case '=':
-			type = operator_type::ASSIGN;
+			type = operator_categories::ASSIGN;
 			operator_str += '=';
 			last_char = source_code_.get();
 			if (last_char != '=')
@@ -190,11 +221,11 @@ namespace summer_lang
 			else
 			{
 				operator_str += '=';
-				type = operator_type::EQ;
+				type = operator_categories::EQ;
 			}
 			break;
 		default:
-			type = operator_type::UNKNOWN;
+			type = operator_categories::UNKNOWN;
 			operator_str += last_char;
 			break;
 		}
@@ -202,7 +233,6 @@ namespace summer_lang
 		if (need_eat)
 			last_char = source_code_.get();
 
-		auto result = std::make_unique<op>(type, operator_str);
-		return std::move(result);
+		return std::make_unique<op>(type, operator_str, row_no);
 	}
 }
