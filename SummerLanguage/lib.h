@@ -9,22 +9,12 @@ namespace summer_lang
 	public:
 		static void import()
 		{
-			LLVMAddSymbol("putd", &lib::putd);
-			LLVMAddSymbol("putc", &lib::putc);
+			LLVMAddSymbol("print_number", &lib::print_number);
 		}
 
-		static double putd(double d)
+		static void print_number(double d)
 		{
-			std::cout << d;
-			std::cout.flush();
-			return 0;
-		}
-
-		static double putc(double c)
-		{
-			std::cout << static_cast<char>(c);
-			std::cout.flush();
-			return 0;
+			std::cout << d << std::flush;
 		}
 	};
 }

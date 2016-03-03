@@ -11,7 +11,7 @@ namespace summer_lang
 		static int row_no = 1;
 
 		if (last_char == EOF)
-			return std::make_unique<end>();
+			return std::make_unique<end>(row_no);
 
 		if (std::isspace(last_char))
 		{
@@ -66,9 +66,6 @@ namespace summer_lang
 			if (str == "var")
 				return std::make_unique<keyword>(keyword_categories::VAR, row_no);
 
-			if (str == "char")
-				return std::make_unique<type>(type_categories::CHAR, row_no);
-
 			if (str == "number")
 				return std::make_unique<type>(type_categories::NUMBER, row_no);
 
@@ -102,6 +99,7 @@ namespace summer_lang
 			else
 				throw lexical_error("Illegal format of character", row_no);
 
+			
 			char ch;
 			if (ch_str.length() == 1)
 			{
@@ -118,16 +116,23 @@ namespace summer_lang
 						{
 						case 'n':
 							ch = '\n';
-							return std::make_unique<literal_char>(ch, row_no);
+							break;
 						case 'r':
 							ch = '\r';
-							return std::make_unique<literal_char>(ch, row_no);
+							break;
 						case 't':
 							ch = '\t';
-							return std::make_unique<literal_char>(ch, row_no);
+							break;
+						case '\\':
+							ch = '\\';
+							break;
+						case '\'' :
+							ch = '\'';
+							break;
 						default:
 							throw lexical_error("Illegal format of character", row_no);
 						}
+						return std::make_unique<literal_char>(ch, row_no);
 					}
 				}
 				throw lexical_error("Illegal format of character", row_no);
@@ -236,7 +241,7 @@ namespace summer_lang
 		return std::make_unique<op>(type, operator_str, row_no);
 	}
 
-	op::op_type get_op_name(const std::unique_ptr<token>& tok)
+	std::string get_op_name(const std::unique_ptr<token>& tok)
 	{
 		auto ptr = static_cast<op *>(tok.get());
 		return ptr->get_op_name();

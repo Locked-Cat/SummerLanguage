@@ -38,9 +38,9 @@ namespace summer_lang
 		: public std::exception
 	{
 	public:
-		compile_error(const std::string & message)
-			: std::exception(message.c_str())
+		compile_error(const std::string & message, int start_row_no)
+			: std::exception((message + "Start from line: " + int2string(start_row_no)).c_str())
 		{
 		}
-	}
+	};
 }

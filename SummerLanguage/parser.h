@@ -9,6 +9,7 @@
 #include <llvm\Transforms\Scalar.h>
 #include <llvm\IR\LegacyPassManager.h>
 #include <llvm\Analysis\Passes.h>
+#include <llvm\IR\Instruction.h>
 
 #include <string>
 #include <vector>
@@ -96,11 +97,12 @@ namespace summer_lang
 	class var_ast
 		: public ast
 	{
-		std::vector<std::tuple<std::string, std::unique_ptr<ast>, type_categories>> var_names_;
+		std::vector<std::tuple<std::string, llvm::Type *, std::unique_ptr<ast>>> vars_;
 		std::unique_ptr<ast> body_;
 	public:
-		var_ast(std::vector<std::tuple<std::string, std::unique_ptr<ast>, type_categories>> var_names, std::unique_ptr<ast> body)
-			: var_names_(std::move(var_names))
+		var_ast(decltype(vars_) vars, std::unique_ptr<ast> body, int start_row_no)
+			: ast(start_row_no)
+			, vars_(std::move(vars))
 			, body_(std::move(body))
 		{
 		}
@@ -111,13 +113,14 @@ namespace summer_lang
 	class binary_expression_ast
 		: public ast
 	{
-		op::op_type op_;
-		op::value_type type_;
+		std::string op_name_;
+		operator_categories op_type_;
 		std::unique_ptr<ast> left_, right_;
 	public:
-		binary_expression_ast(op::op_type op, op::value_type type, std::unique_ptr<ast> left,  std::unique_ptr<ast> right)
-			: op_(op)
-			, type_(type)
+		binary_expression_ast(std::string op_name, operator_categories op_type, std::unique_ptr<ast> left, std::unique_ptr<ast> right, int start_row_no)
+			: ast(start_row_no)
+			, op_name_(op_name)
+			, op_type_(op_type)
 			, left_(std::move(left))
 			, right_(std::move(right))
 		{
@@ -132,8 +135,9 @@ namespace summer_lang
 		std::string callee_;
 		std::vector<std::unique_ptr<ast>> args_;
 	public:
-		call_expression_ast(const std::string & callee, std::vector<std::unique_ptr<ast>> args)
-			: callee_(callee)
+		call_expression_ast(const std::string & callee, decltype(args_) args, int start_row_no)
+			: ast(start_row_no)
+			, callee_(callee)
 			, args_(std::move(args))
 		{
 		}
@@ -145,11 +149,14 @@ namespace summer_lang
 		: public ast
 	{
 		std::string var_name_;
+		llvm::Type * var_type_;
 		std::unique_ptr<ast> start_, end_, step_, body_;
 
 	public:
-		for_expression_ast(const std::string & var_name, std::unique_ptr<ast> start, std::unique_ptr<ast> end, std::unique_ptr<ast> step, std::unique_ptr<ast> body)
-			: var_name_(var_name)
+		for_expression_ast(const std::string & var_name, llvm::Type * var_type, std::unique_ptr<ast> start, std::unique_ptr<ast> end, std::unique_ptr<ast> step, std::unique_ptr<ast> body, int start_row_no)
+			: ast(start_row_no)
+			, var_name_(var_name)
+			, var_type_(var_type)
 			, start_(std::move(start))
 			, end_(std::move(end))
 			, step_(std::move(step))
@@ -165,8 +172,9 @@ namespace summer_lang
 	{
 		std::unique_ptr<ast> cond_, then_part_, else_part_;
 	public:
-		if_expression_ast(std::unique_ptr<ast> cond, std::unique_ptr<ast> then_part, std::unique_ptr<ast> else_part)
-			: cond_(std::move(cond))
+		if_expression_ast(std::unique_ptr<ast> cond, std::unique_ptr<ast> then_part, std::unique_ptr<ast> else_part, int start_row_no)
+			: ast(start_row_no)
+			, cond_(std::move(cond))
 			, then_part_(std::move(then_part))
 			, else_part_(std::move(else_part))
 		{
@@ -178,11 +186,12 @@ namespace summer_lang
 	class unary_expression_ast
 		: public ast
 	{
-		op::op_type op_;
-		std::unique_ptr<ast>  expr_;
+		std::string op_name_;
+		std::unique_ptr<ast> expr_;
 	public:
-		unary_expression_ast(op::op_type op, std::unique_ptr<ast> expr)
-			: op_(std::move(op))
+		unary_expression_ast(std::string op_name, std::unique_ptr<ast> expr, int start_row_no)
+			: ast(start_row_no)
+			, op_name_(std::move(op_name))
 			, expr_(std::move(expr))
 		{
 		}
@@ -193,22 +202,26 @@ namespace summer_lang
 	class prototype_ast
 	{
 		std::string name_;
-		std::vector<std::pair<std::string, type_categories>> args_;
-		type_categories ret_type_;
+		std::vector<std::pair<std::string, llvm::Type *>> args_;
+		llvm::Type * ret_type_;
 
 		bool is_operator_;
 		int precedence_;
+
+		int start_row_no_;
 	public:
-		prototype_ast(const std::string & name, std::vector<std::pair<std::string, type_categories>> args, type_categories ret_type, bool is_operator, int precedence)
+		prototype_ast(const std::string & name, decltype(args_) args, llvm::Type * ret_type, bool is_operator, int precedence, int start_row_no)
 			: name_(name)
 			, args_(std::move(args))
 			, ret_type_(ret_type)
 			, is_operator_(is_operator)
 			, precedence_(precedence)
+			, start_row_no_(start_row_no)
 		{
 		}
 
 		llvm::Function * codegen();
+
 		const std::string get_name() const
 		{
 			return name_;
@@ -224,7 +237,7 @@ namespace summer_lang
 			return is_operator_ && args_.size() == 2;
 		}
 
-		op::op_type get_operator_name() const
+		std::string get_operator_name() const
 		{
 			assert(is_unary_op() || is_binary_op());
 			return name_.substr(name_.size() - 1);
@@ -234,30 +247,43 @@ namespace summer_lang
 		{
 			return precedence_;
 		}
+
+		int get_position() const
+		{
+			return start_row_no_;
+		}
 	};
 
 	class function_ast
 	{
 		std::unique_ptr<prototype_ast> prototype_;
 		std::unique_ptr<ast> body_;
+
+		int start_row_no_;
 	public:
-		function_ast(std::unique_ptr<prototype_ast> prototype, std::unique_ptr<ast> body)
+		function_ast(std::unique_ptr<prototype_ast> prototype, std::unique_ptr<ast> body, int start_row_no)
 			: prototype_(std::move(prototype))
 			, body_(std::move(body))
+			, start_row_no_(start_row_no)
 		{
 		}
 
 		llvm::Function * codegen();
+
+		int get_position() const
+		{
+			return start_row_no_;
+		}
 	};
 
 	static llvm::IRBuilder<> global_builder(llvm::getGlobalContext());
 	static std::map<std::string, std::pair<llvm::AllocaInst *, llvm::Type *>> global_named_values;
 	static std::unique_ptr<MCJIT_helper> global_JIT_helper;
-	static std::map<op::op_type, int> global_op_precedence;
+	static std::map<std::string, int> global_op_precedence;
 
-	static int get_op_precedence(op::op_type op);
-	static void set_op_precedence(op::op_type op, int precedence);
-	static llvm::AllocaInst * global_create_alloca(llvm::Function * function, const std::string & name);
+	static int get_op_precedence(const std::string & op_name);
+	static void set_op_precedence(const std::string & op_name, int precedence);
+	static llvm::AllocaInst * global_create_alloca(llvm::Function * function, const std::string & name, llvm::Type * type);
 
 	class parser
 	{
@@ -271,7 +297,7 @@ namespace summer_lang
 		std::unique_ptr<ast> parse_identifier_();
 		std::unique_ptr<ast> parse_primary_();
 		std::unique_ptr<ast> parse_expression_();
-		std::unique_ptr<ast> parse_bin_op_right_(int expr_precedence, std::unique_ptr<ast> left);
+		std::unique_ptr<ast> parse_bin_op_right_(int expr_precedence, std::unique_ptr<ast> left, int start_row);
 		std::unique_ptr<ast> parse_if_();
 		std::unique_ptr<ast> parse_for_();
 		std::unique_ptr<ast> parse_unary_();

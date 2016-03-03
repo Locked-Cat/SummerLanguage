@@ -1,5 +1,8 @@
-extern putd(d: double)->void	
+extern print_number(num: number)->void	
 
 function main()->void
-	var pi = 3.14 in
-		putd(pi)
+	for i: number = 0, i < 10, 2 in
+		var j: number = i + 3 in
+			print_number(j)
+
+main()

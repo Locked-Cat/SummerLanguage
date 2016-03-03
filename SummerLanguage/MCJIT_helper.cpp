@@ -23,7 +23,7 @@ namespace summer_lang
 
 				auto new_function = open_module_->getFunction(name);
 				if (new_function && !new_function->empty())
-					return print_error<llvm::Function *>("Redefinition of function across modules");
+					throw std::exception("Redefinition of function across modules");
 
 				if (!new_function)
 					new_function = llvm::Function::Create(function->getFunctionType(), llvm::Function::ExternalLinkage, name, open_module_);
@@ -60,7 +60,7 @@ namespace summer_lang
 				.create();
 			if (!new_engine)
 			{
-				summer_lang::print_error<>("Can't create Execution Engine: " + error_str);
+				throw std::exception(("Can't create Execution Engine: " + error_str).c_str());
 				exit(1);
 			}
 
@@ -107,7 +107,7 @@ namespace summer_lang
 
 		p_func = (uint64_t)helper_->get_symbol_address(name);
 		if (!p_func)
-			return print_error<uint64_t>("Program used extern function '" + name + "' which could not be resolved!");
+			throw std::exception(("Program used extern function '" + name + "' which could not be resolved!").c_str());
 
 		return p_func;
 	}

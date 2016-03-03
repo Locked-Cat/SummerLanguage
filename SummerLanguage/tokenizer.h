@@ -13,6 +13,7 @@ namespace summer_lang
 		KEYWORD,
 		IDENTIFIER,
 		LITERAL_NUMBER,
+		LITERAL_CHAR,
 		OPERATOR,
 		TYPE,
 		END
@@ -83,7 +84,7 @@ namespace summer_lang
 	template <typename T>
 	typename T::value_type get_value(const std::unique_ptr<token> & p_token)
 	{
-		auto ptr = static_cast<T *>p_token.get();
+		auto ptr = dynamic_cast<T *>(p_token.get());
 		return ptr->value_;
 	}
 
@@ -171,17 +172,38 @@ namespace summer_lang
 		friend value_type get_value<literal_number>(const std::unique_ptr<token> & p_token);
 	};
 
+	class literal_char
+		: public token
+	{
+		char value_;
+	public:
+		using value_type = char;
+
+		literal_char(char value, int row_no)
+			: token(row_no)
+			, value_(value)
+		{
+		}
+
+		virtual token_categories get_type() const override
+		{
+			return token_categories::LITERAL_CHAR;
+		}
+
+		friend value_type get_value<literal_char>(const std::unique_ptr<token> & p_token);
+	};
+
 	class op
 		: public token
 	{
-		operator_categories op_type_;
+		operator_categories value_;
 		std::string op_name_;
 	public:
 		using value_type = operator_categories;
 
 		op(operator_categories op_type, const std::string & op_name, int row_no)
 			: token(row_no)
-			, op_type_(op_type)
+			, value_(op_type)
 			, op_name_(op_name)
 		{
 		}

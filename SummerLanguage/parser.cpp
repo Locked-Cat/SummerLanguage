@@ -113,27 +113,28 @@ namespace summer_lang
 		current_token_ = std::move(p_tokenizer_->get_token());
 	}
 
-	int get_op_precedence(op::op_type op)
+	int get_op_precedence(const std::string & op)
 	{
 		if (global_op_precedence.find(op) != global_op_precedence.end())
 			return global_op_precedence[op];
 		return -1;
 	}
 
-	void set_op_precedence(op::op_type op, int precedence)
+	void set_op_precedence(const std::string & op, int precedence)
 	{
 		global_op_precedence[op] = precedence;
 	}
 
-	llvm::AllocaInst * global_create_alloca(llvm::Function * parent, const std::string & name)
+	llvm::AllocaInst * global_create_alloca(llvm::Function * parent, const std::string & name, llvm::Type * type)
 	{
 		llvm::IRBuilder<> temp_block(&(parent->getEntryBlock()), parent->getEntryBlock().begin());
-		return temp_block.CreateAlloca(llvm::Type::getDoubleTy(llvm::getGlobalContext()), 0, name.c_str());
+		return temp_block.CreateAlloca(type, 0, name.c_str());
 	}
 
 	std::unique_ptr<ast> parser::parse_number_()
 	{
-		auto result = std::make_unique<number_ast>(get_value<literal_number>(current_token_));
+		auto start_row_no = current_token_->get_position();
+		auto result = std::make_unique<number_ast>(get_value<literal_number>(current_token_), start_row_no);
 		get_next_token_();
 		return std::move(result);
 	}
@@ -155,10 +156,11 @@ namespace summer_lang
 	std::unique_ptr<ast> parser::parse_identifier_()
 	{
 		auto name = get_value<identifier>(current_token_);
+		auto start_row_no = current_token_->get_position();
 
 		get_next_token_();
 		if (current_token_->get_type() != token_categories::OPERATOR || get_value<op>(current_token_) != operator_categories::LBRACKET)
-			return std::make_unique<variable_ast>(name);
+			return std::make_unique<variable_ast>(name, start_row_no);
 		
 		get_next_token_();
 		std::vector<std::unique_ptr<ast>> args;
@@ -181,7 +183,7 @@ namespace summer_lang
 			}
 		}
 		get_next_token_();
-		return std::make_unique<call_expression_ast>(name, std::move(args));
+		return std::make_unique<call_expression_ast>(name, std::move(args), start_row_no);
 	}
 
 	std::unique_ptr<ast> parser::parse_primary_()
@@ -221,14 +223,13 @@ namespace summer_lang
 
 	std::unique_ptr<ast> parser::parse_expression_()
 	{
+		auto start_row_no = current_token_->get_position();
 		auto left = parse_unary_();
-		if (!left)
-			return nullptr;
 
-		return parse_bin_op_right_(0, std::move(left));
+		return parse_bin_op_right_(0, std::move(left), start_row_no);
 	}
 
-	std::unique_ptr<ast> parser::parse_bin_op_right_(int expr_precedence, std::unique_ptr<ast> left)
+	std::unique_ptr<ast> parser::parse_bin_op_right_(int expr_precedence, std::unique_ptr<ast> left, int start_row_no)
 	{
 		while (true)
 		{ 
@@ -253,13 +254,13 @@ namespace summer_lang
 
 					if (current_precedence < next_precedence)
 					{
-						right = parse_bin_op_right_(current_precedence + 1, std::move(right));
+						right = parse_bin_op_right_(current_precedence + 1, std::move(right), start_row_no);
 						if (!right)
 							return nullptr;
 					}
 				}
 
-				left = std::make_unique<binary_expression_ast>(current_op,  current_op_type, std::move(left), std::move(right));
+				left = std::make_unique<binary_expression_ast>(current_op,  current_op_type, std::move(left), std::move(right), start_row_no);
 			}
 			else
 				return  left;
@@ -268,6 +269,7 @@ namespace summer_lang
 
 	std::unique_ptr<ast> parser::parse_if_()
 	{
+		auto start_row_no = current_token_->get_position();
 		get_next_token_();
 
 		auto cond = parse_expression_();
@@ -290,17 +292,35 @@ namespace summer_lang
 		if (!else_part)
 			return nullptr;
 
-		return std::make_unique<if_expression_ast>(std::move(cond), std::move(then_part), std::move(else_part));
+		return std::make_unique<if_expression_ast>(std::move(cond), std::move(then_part), std::move(else_part), start_row_no);
 
 	}
 
 	std::unique_ptr<ast> parser::parse_for_()
-	{
+	{															
+		auto start_row_no = current_token_->get_position();
 		get_next_token_();
 
 		if (current_token_ -> get_type() != token_categories::IDENTIFIER)
 			throw syntax_error("Expected a identifier after \'for\'", current_token_->get_position());
 		auto var_name = get_value<identifier>(current_token_);
+		get_next_token_();
+
+		if (current_token_->get_type() != token_categories::OPERATOR || get_value<op>(current_token_) != operator_categories::COLON)
+			throw syntax_error("Expected a type", current_token_->get_position());
+		get_next_token_();
+
+		if (current_token_->get_type() != token_categories::TYPE || get_value<type>(current_token_) == type_categories::VOID)
+			throw syntax_error("Expected a correct type", current_token_->get_position());
+		llvm::Type * var_type;
+		switch (get_value<type>(current_token_))
+		{
+		case type_categories::NUMBER:
+			var_type = llvm::Type::getDoubleTy(llvm::getGlobalContext());
+			break;
+		default:
+			throw syntax_error("Unknown type", current_token_->get_position());
+		}
 		get_next_token_();
 
 		if (current_token_ ->get_type() != token_categories::OPERATOR || get_value<op>(current_token_) != operator_categories::ASSIGN)
@@ -328,7 +348,7 @@ namespace summer_lang
 				return nullptr;
 		}
 		if (!step)
-			step.reset(new number_ast(1));
+			step.reset(new number_ast(1, current_token_->get_position()));
 
 		if (current_token_->get_type() != token_categories::KEYWORD || get_value<keyword>(current_token_) != keyword_categories::IN)
 			throw syntax_error("Expected \"in\" between head and body of \'for\'", current_token_->get_position());
@@ -338,7 +358,7 @@ namespace summer_lang
 		if (!body)
 			return nullptr;
 
-		return std::make_unique<for_expression_ast>(var_name, std::move(start), std::move(end), std::move(step), std::move(body));
+		return std::make_unique<for_expression_ast>(var_name, var_type, std::move(start), std::move(end), std::move(step), std::move(body), start_row_no);
 	}
 
 	std::unique_ptr<ast> parser::parse_unary_()
@@ -346,24 +366,26 @@ namespace summer_lang
 		if (current_token_->get_type() != token_categories::OPERATOR || get_value<op>(current_token_) != operator_categories::USER_DEFINED)
 			return parse_primary_();
 
+		auto start_row_no = current_token_->get_position();
 		auto op = get_op_name(current_token_);
 		get_next_token_();
 		if (auto expr = parse_unary_())
-			return std::make_unique<unary_expression_ast>(op, std::move(expr));
+			return std::make_unique<unary_expression_ast>(op, std::move(expr), start_row_no);
 		return nullptr;
 	}
 
 	std::unique_ptr<ast> parser::parse_var_()
 	{
+		auto start_row_no = current_token_->get_position();
 		get_next_token_();
 
-		std::vector<std::tuple<std::string, std::unique_ptr<ast>, type_categories>> var_names;
+		std::vector<std::tuple<std::string, llvm::Type *, std::unique_ptr<ast>>> vars;
 		if (current_token_->get_type() != token_categories::IDENTIFIER)
 			throw syntax_error("Expected identifier after \'var\'", current_token_->get_position());
 
 		while (true)
 		{
-			auto name = get_value<identifier>(current_token_);
+			auto var_name = get_value<identifier>(current_token_);
 			get_next_token_();
 
 			if (current_token_->get_type() != token_categories::OPERATOR || get_value<op>(current_token_) != operator_categories::COLON)
@@ -372,15 +394,23 @@ namespace summer_lang
 
 			if (current_token_->get_type() != token_categories::TYPE || get_value<type>(current_token_) == type_categories::VOID)
 				throw syntax_error("Expected a legal type name", current_token_->get_position());
-			auto type_kind = get_value<type>(current_token_);
+			llvm::Type * var_type;
+			switch (get_value<type>(current_token_))
+			{
+			case type_categories::NUMBER:
+				var_type = llvm::Type::getDoubleTy(llvm::getGlobalContext());
+				break;
+			default:
+				throw syntax_error("Unknown type", current_token_->get_position());
+			}
 			get_next_token_();
 
 			if (current_token_->get_type() != token_categories::OPERATOR || get_value<op>(current_token_) != operator_categories::ASSIGN)
-				throw syntax_error("Expected initialization of variable" + name, current_token_->get_position());
+				throw syntax_error("Expected initialization of variable" + var_name, current_token_->get_position());
 			get_next_token_();
 
 			auto init = parse_expression_();
-			var_names.push_back(std::make_tuple(name, std::move(init), type_kind));
+			vars.push_back(std::make_tuple(var_name, var_type, std::move(init)));
 
 			if (current_token_->get_type() != token_categories::OPERATOR || get_value<op>(current_token_) != operator_categories::COMM)
 				break;
@@ -396,14 +426,15 @@ namespace summer_lang
 		get_next_token_();
 		auto body = parse_expression_();
 
-		return std::make_unique<var_ast>(std::move(var_names), std::move(body));
+		return std::make_unique<var_ast>(std::move(vars), std::move(body), start_row_no);
 	}
 
 	std::unique_ptr<prototype_ast> parser::parse_prototype_()
 	{
 		std::string name;
-		int kind = 0;		//0 = identifier, 1 = unary, 2 = binary
-		int precedence = 20;		//for binary operator
+		auto kind = 0;		//0 = identifier, 1 = unary, 2 = binary
+		auto precedence = 20;		//for binary operator
+		auto start_row_no = current_token_->get_position();
 
 		switch (current_token_->get_type())
 		{
@@ -449,7 +480,7 @@ namespace summer_lang
 			throw syntax_error("Expected '(' in prototype", current_token_->get_position());
 		get_next_token_();
 
-		std::vector<std::pair<std::string, type_categories>> args;
+		std::vector<std::pair<std::string, llvm::Type *>> args;
 
 		if (current_token_->get_type() != token_categories::OPERATOR || get_value<op>(current_token_) != operator_categories::RBRACKET)
 		{
@@ -466,7 +497,15 @@ namespace summer_lang
 
 				if (current_token_->get_type() != token_categories::TYPE || get_value<type>(current_token_) == type_categories::VOID)
 					throw syntax_error("Expected a correct type after argument \'" + arg_name + "\'", current_token_->get_position());
-				auto arg_type = get_value<type>(current_token_);
+				llvm::Type * arg_type;
+				switch (get_value<type>(current_token_))
+				{
+				case type_categories::NUMBER:
+					arg_type = llvm::Type::getDoubleTy(llvm::getGlobalContext());
+					break;
+				default:
+					throw syntax_error("Unknown type", current_token_->get_position());
+				}
 				get_next_token_();
 
 				args.push_back(std::make_pair(arg_name, arg_type));
@@ -488,17 +527,30 @@ namespace summer_lang
 
 		if (current_token_->get_type() != token_categories::TYPE)
 			throw syntax_error("Expected a return type of function \'" + name + "\'", current_token_->get_position());
-		auto ret_type = get_value<type>(current_token_);
+		
+		llvm::Type * ret_type;
+		switch (get_value<type>(current_token_))
+		{
+		case type_categories::NUMBER:
+			ret_type = llvm::Type::getDoubleTy(llvm::getGlobalContext());
+			break;
+		case type_categories::VOID:
+			ret_type = llvm::Type::getVoidTy(llvm::getGlobalContext());
+			break;
+		default:
+			throw syntax_error("Unknown type", current_token_->get_position());
+		}
 		get_next_token_();
 
 		if (kind && kind != args.size())
 			throw syntax_error("Invalid number of operands of operator", current_token_->get_position());
 
-		return std::make_unique<prototype_ast>(name, std::move(args), ret_type,  kind != 0, precedence);
+		return std::make_unique<prototype_ast>(name, std::move(args), ret_type,  kind != 0, precedence, start_row_no);
 	}
 
 	std::unique_ptr<function_ast> parser::parse_function_()
 	{
+		auto start_row_no = current_token_->get_position();
 		get_next_token_();
 		
 		auto prototype = parse_prototype_();
@@ -509,7 +561,7 @@ namespace summer_lang
 		if (!body)
 			return nullptr;
 
-		return std::make_unique<function_ast>(std::move(prototype), std::move(body));
+		return std::make_unique<function_ast>(std::move(prototype), std::move(body), start_row_no);
 	}
 
 	std::unique_ptr<prototype_ast> parser::parse_extern_()
@@ -521,12 +573,13 @@ namespace summer_lang
 
 	std::unique_ptr<function_ast> parser::parse_top_level_expr_()
 	{
-		auto prototype = std::make_unique<prototype_ast>("", std::vector<std::string>(), false, -1);
+		auto start_row_no = current_token_->get_position();
+		auto prototype = std::make_unique<prototype_ast>("", std::vector<std::pair<std::string, llvm::Type *>>(), llvm::Type::getVoidTy(llvm::getGlobalContext()), false, -1, start_row_no);
 		auto expression = parse_expression_();
 		if (!expression)
 			return nullptr;
 
-		return std::make_unique<function_ast>(std::move(prototype), std::move(expression));
+		return std::make_unique<function_ast>(std::move(prototype), std::move(expression), start_row_no);
 	}
 
 	llvm::Value * number_ast::codegen()
@@ -541,10 +594,11 @@ namespace summer_lang
 
 	llvm::Value * variable_ast::codegen()
 	{
-		auto value = global_named_values[name_];
-		if (!value.first)
-			throw compile_error("Unknown variable name \'" + name_ + "\'");
-		return global_builder.CreateLoad(value.first);
+		auto ptr = global_named_values.find(name_);
+		if(ptr == global_named_values.end())
+			throw compile_error("Unknown variable name \'" + name_ + "\'", get_position());
+		auto info = ptr->second;
+		return global_builder.CreateLoad(info.second, info.first);
 	}
 
 	llvm::Value * binary_expression_ast::codegen()
@@ -552,17 +606,10 @@ namespace summer_lang
 		auto l_value = left_->codegen();
 		auto r_value = right_->codegen();
 
-		if (l_value->getType() != l_value->getType())
-			throw compile_error("The type of operands is NOT same");
-
-		switch (type_)
+		switch (op_type_)
 		{
 		case operator_categories::ADD:
-			if(l_value->getType() == llvm::Type::getDoubleTy(llvm::getGlobalContext()))
-				return global_builder.CreateFAdd(l_value, r_value, "addtmp");
-			else
-				if(l_value->getType() == llvm::Type::getInt8Ty(llvm::getGlobalContext()))
-					return global_builder.Create 
+			return global_builder.CreateFAdd(l_value, r_value, "addtmp");
 		case operator_categories::SUB:
 			return global_builder.CreateFSub(l_value, r_value, "subtmp");
 		case operator_categories::MUL:
@@ -603,10 +650,12 @@ namespace summer_lang
 		{
 			auto tmp = dynamic_cast<variable_ast *>(left_.get());
 			if (!tmp)
-				return print_error<llvm::Value *>("Destination of '=' must be a variable");
-			auto dest = global_named_values[tmp->get_name()];
-			if (!dest)
-				return print_error<llvm::Value *>("Unknown variable name '" + tmp->get_name() + "'");
+				throw compile_error("Destination of \'=\' must be a variable", get_position());
+			auto ptr = global_named_values.find(tmp->get_name());
+			if (ptr == global_named_values.end())
+				throw syntax_error("Unknown variable name \'" + tmp->get_name() + "'", get_position());
+			auto info = ptr->second;
+			auto dest = info.first;
 			global_builder.CreateStore(r_value, dest);
 			return dest;
 		}
@@ -614,9 +663,9 @@ namespace summer_lang
 			break;
 		}
 
-		auto function = global_JIT_helper->get_function("binary" + op_);
+		auto function = global_JIT_helper->get_function("binary" + op_name_);
 		if (!function)
-			return print_error<llvm::Value *>("Unknown operator");
+			throw compile_error("Unknown operator", get_position());
 
 		llvm::Value * args[] = { l_value, r_value };
 		return global_builder.CreateCall(function, args, "binop");
@@ -626,10 +675,10 @@ namespace summer_lang
 	{
 		auto callee_function = global_JIT_helper->get_function(callee_);
 		if (!callee_function)
-			return print_error<llvm::Value *>("Unknown function referenced");
+			throw compile_error("Unknown function referenced", get_position());
 
 		if (callee_function->arg_size() != args_.size())
-			return print_error<llvm::Value *>("Incorrect number of arguments passed");
+			throw compile_error("Incorrect number of arguments passed", get_position());
 
 		std::vector<llvm::Value *> args_value;
 		for (auto & arg : args_)
@@ -639,14 +688,16 @@ namespace summer_lang
 				return nullptr;
 		}
 
-		return global_builder.CreateCall(callee_function, args_value, "calltmp");
+		return global_builder.CreateCall(callee_function, args_value);
 	}
 	
 	llvm::Function * prototype_ast::codegen()
 	{
-		std::vector<llvm::Type *> doubles(args_.size(), llvm::Type::getDoubleTy(llvm::getGlobalContext()));
+		std::vector<llvm::Type *> args_type;
+		for (auto & arg : args_)
+			args_type.push_back(arg.second);
 
-		auto function_type = llvm::FunctionType::get(llvm::Type::getDoubleTy(llvm::getGlobalContext()), doubles, false);
+		auto function_type = llvm::FunctionType::get(ret_type_, args_type, false);
 		auto module = global_JIT_helper->get_module_for_new_function();
 
 		auto function_name = MCJIT_helper::generate_function_name(name_);
@@ -656,14 +707,14 @@ namespace summer_lang
 			function->eraseFromParent();
 			function = global_JIT_helper->get_function(name_);
 			if (!function->empty())
-				return print_error<llvm::Function *>("Redefinition of function " + name_);
+				throw compile_error("Redefinition of function " + name_, get_position());
 			if (function->arg_size() != args_.size())
-				return print_error<llvm::Function *>("Redefinition of function " + name_ + " with different number of args");
+				throw compile_error("Redefinition of function " + name_ + " with different number of args", get_position());
 		}
 
 		auto id = 0;
 		for (auto & arg : function->args())
-			arg.setName(args_[id++]);
+			arg.setName(args_[id++].first);
 
 		return function;
 	}
@@ -685,22 +736,20 @@ namespace summer_lang
 		global_named_values.clear();
 		for (auto & arg : function->args())
 		{
-			auto alloca_inst = global_create_alloca(function, arg.getName());
+			auto alloca_inst = global_create_alloca(function, arg.getName(), arg.getType());
 			global_builder.CreateStore(&arg, alloca_inst);
-			global_named_values[arg.getName()] = alloca_inst;
+			global_named_values[arg.getName()].first = alloca_inst;
+			global_named_values[arg.getName()].second = arg.getType();
 		}
 
-		if (auto ret_value = body_->codegen())
-		{
+		auto ret_value = body_->codegen();
+		if (!(function->getReturnType()->isVoidTy()))
 			global_builder.CreateRet(ret_value);
-			llvm::verifyFunction(*function);
-			return function;
-		}
 		else
-		{
-			function->eraseFromParent();
-			return nullptr;
-		}
+			global_builder.CreateRetVoid();
+
+		llvm::verifyFunction(*function);
+		return function;
 	}
 
 	llvm::Value * if_expression_ast::codegen()
@@ -748,10 +797,11 @@ namespace summer_lang
 	llvm::Value * for_expression_ast::codegen()
 	{
 		auto parent = global_builder.GetInsertBlock()->getParent();
-		auto alloca_inst = global_create_alloca(parent, var_name_);
+		auto alloca_inst = global_create_alloca(parent, var_name_, var_type_);
 
 		auto old_val = global_named_values[var_name_];
-		global_named_values[var_name_] = alloca_inst;
+		global_named_values[var_name_].first = alloca_inst;
+		global_named_values[var_name_].second = var_type_;
 		
 		auto start_value = start_->codegen();
 		if (!start_value)
@@ -793,7 +843,7 @@ namespace summer_lang
 		parent->getBasicBlockList().push_back(after_basic_block);
 		global_builder.SetInsertPoint(after_basic_block);
 
-		if (old_val)
+		if (old_val.first)
 			global_named_values[var_name_] = old_val;
 		else
 			global_named_values.erase(var_name_);
@@ -804,9 +854,9 @@ namespace summer_lang
 
 	llvm::Value * unary_expression_ast::codegen()
 	{
-		auto function = global_JIT_helper->get_function("unary" + op_);
+		auto function = global_JIT_helper->get_function("unary" + op_name_);
 		if (!function)
-			return print_error<llvm::Value *>("Unknown unary operator");
+			throw compile_error("Unknown unary operator", get_position());
 
 		auto operand = expr_->codegen();
 		if (!operand)
@@ -818,37 +868,31 @@ namespace summer_lang
 
 	llvm::Value * var_ast::codegen()
 	{
-		std::vector<llvm::AllocaInst *> old_bindings;
+		std::vector<std::pair<llvm::AllocaInst *, llvm::Type *>> old_bindings;
 
 		auto parent = global_builder.GetInsertBlock()->getParent();
-		for (auto i = var_names_.begin(); i != var_names_.end(); ++i)
+		for (auto i = vars_.begin(); i != vars_.end(); ++i)
 		{
-			auto var_name = i->first;
-			auto var_init = i->second.get();
+			auto var_name = std::get<0>(*i);
+			auto var_type = std::get<1>(*i);
+			auto var_init = std::get<2>(*i).get();
 
-			llvm::Value * init_value;
-			if (var_init)
-			{
-				init_value = var_init->codegen();
-				if (!init_value)
-					return nullptr;
-			}
-			else
-				init_value = llvm::ConstantFP::get(llvm::getGlobalContext(), llvm::APFloat(0.0));
+			auto init_value = var_init->codegen();
 
-			auto alloca_inst = global_create_alloca(parent, var_name);
+			auto alloca_inst = global_create_alloca(parent, var_name, var_type);
 			global_builder.CreateStore(init_value, alloca_inst);
 
 			old_bindings.push_back(global_named_values[var_name]);
-			global_named_values[var_name] = alloca_inst;
+			global_named_values[var_name].first = alloca_inst;
+			global_named_values[var_name].second = var_type;
 		}
 
 		auto body_value = body_->codegen();
 		if (!body_value)
 			return nullptr;
 
-		for (auto i = 0; i != var_names_.size(); ++i)
-			global_named_values[var_names_[i].first] = old_bindings[i];
+		for (auto i = 0; i != vars_.size(); ++i)
+			global_named_values[std::get<0>(vars_[i])] = old_bindings[i];
 
 		return body_value;
 	}
