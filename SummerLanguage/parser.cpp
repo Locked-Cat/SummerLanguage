@@ -234,7 +234,7 @@ namespace summer_lang
 		{ 
 			if (current_token_->get_type() == token_categories::OPERATOR)
 			{
-				auto current_op = get_op(current_token_);
+				auto current_op = get_op_name(current_token_);
 				auto current_op_type = get_value<op>(current_token_);
 				auto current_precedence = get_op_precedence(current_op);
 
@@ -248,7 +248,7 @@ namespace summer_lang
 
 				if (current_token_->get_type() == token_categories::OPERATOR)
 				{
-					auto next_op = get_op(current_token_);
+					auto next_op = get_op_name(current_token_);
 					auto next_precedence = get_op_precedence(next_op);
 
 					if (current_precedence < next_precedence)
@@ -343,10 +343,10 @@ namespace summer_lang
 
 	std::unique_ptr<ast> parser::parse_unary_()
 	{
-		if (current_token_->get_type() != token_categories::OPERATOR || get_value<op>(current_token_) != operator_categories::UNKNOWN)
+		if (current_token_->get_type() != token_categories::OPERATOR || get_value<op>(current_token_) != operator_categories::USER_DEFINED)
 			return parse_primary_();
 
-		auto op = get_op(current_token_);
+		auto op = get_op_name(current_token_);
 		get_next_token_();
 		if (auto expr = parse_unary_())
 			return std::make_unique<unary_expression_ast>(op, std::move(expr));
@@ -417,9 +417,9 @@ namespace summer_lang
 			{
 			case keyword_categories::BINARY:
 				get_next_token_();
-				if (current_token_->get_type() != token_categories::OPERATOR || get_value<op>(current_token_) != operator_categories::UNKNOWN)
+				if (current_token_->get_type() != token_categories::OPERATOR || get_value<op>(current_token_) != operator_categories::USER_DEFINED)
 					throw syntax_error("Expected a user-defined operator", current_token_->get_position());
-				name = "binary" + get_op(current_token_);
+				name = "binary" + get_op_name(current_token_);
 				kind = 2;
 				get_next_token_();
 
@@ -431,9 +431,9 @@ namespace summer_lang
 				break;
 			case keyword_categories::UNARY:
 				get_next_token_();
-				if (current_token_->get_type() != token_categories::OPERATOR || get_value<op>(current_token_) != operator_categories::UNKNOWN)
+				if (current_token_->get_type() != token_categories::OPERATOR || get_value<op>(current_token_) != operator_categories::USER_DEFINED)
 					throw syntax_error("Expected a user-defined operator", current_token_->get_position());
-				name = "unary" + get_op(current_token_);
+				name = "unary" + get_op_name(current_token_);
 				kind = 1;
 				get_next_token_();
 				break;
@@ -456,27 +456,45 @@ namespace summer_lang
 			while (true)
 			{
 				if (current_token_->get_type() != token_categories::IDENTIFIER)
-					throw syntax_error("Expect a argument name in prototype", current_token_->get_position());
-
+					throw syntax_error("Expected a argument name in prototype", current_token_->get_position());
 				auto arg_name = get_value<identifier>(current_token_);
-				args.push_back(arg_name);
 				get_next_token_();
+
+				if (current_token_->get_type() != token_categories::OPERATOR || get_value<op>(current_token_) != operator_categories::COLON)
+					throw syntax_error("Expected a ':' after argument \'" + arg_name + "\'", current_token_->get_position());
+				get_next_token_();
+
+				if (current_token_->get_type() != token_categories::TYPE || get_value<type>(current_token_) == type_categories::VOID)
+					throw syntax_error("Expected a correct type after argument \'" + arg_name + "\'", current_token_->get_position());
+				auto arg_type = get_value<type>(current_token_);
+				get_next_token_();
+
+				args.push_back(std::make_pair(arg_name, arg_type));
 
 				if (current_token_->get_type() == token_categories::OPERATOR && get_value<op>(current_token_) == operator_categories::RBRACKET)
 					break;
 
 				if (current_token_->get_type() != token_categories::OPERATOR || get_value<op>(current_token_) != operator_categories::COMM)
-					return print_error<std::unique_ptr<prototype_ast>>("Expect a ')' or ',' in prototype");
+					throw syntax_error("Expected a ')' or ',' in prototype", current_token_->get_position());
 
 				get_next_token_();
 			}
 		}
 		get_next_token_();
 
-		if (kind && kind != args.size())
-			return print_error<std::unique_ptr<prototype_ast>>("Invalid number of operands of operator");
+		if (current_token_->get_type() != token_categories::OPERATOR || get_value<op>(current_token_) != operator_categories::ARROW)
+			throw syntax_error("Expected a return type of function \'" + name + "\'", current_token_->get_position());
+		get_next_token_();
 
-		return std::make_unique<prototype_ast>(name, std::move(args), kind != 0, precedence);
+		if (current_token_->get_type() != token_categories::TYPE)
+			throw syntax_error("Expected a return type of function \'" + name + "\'", current_token_->get_position());
+		auto ret_type = get_value<type>(current_token_);
+		get_next_token_();
+
+		if (kind && kind != args.size())
+			throw syntax_error("Invalid number of operands of operator", current_token_->get_position());
+
+		return std::make_unique<prototype_ast>(name, std::move(args), ret_type,  kind != 0, precedence);
 	}
 
 	std::unique_ptr<function_ast> parser::parse_function_()
@@ -524,9 +542,9 @@ namespace summer_lang
 	llvm::Value * variable_ast::codegen()
 	{
 		auto value = global_named_values[name_];
-		if (!value)
-			return print_error<llvm::Value *>("Unknown variable name \'" + name_ + "\'");
-		return global_builder.CreateLoad(value);
+		if (!value.first)
+			throw compile_error("Unknown variable name \'" + name_ + "\'");
+		return global_builder.CreateLoad(value.first);
 	}
 
 	llvm::Value * binary_expression_ast::codegen()
@@ -534,13 +552,17 @@ namespace summer_lang
 		auto l_value = left_->codegen();
 		auto r_value = right_->codegen();
 
-		if (!l_value || !r_value)
-			return nullptr;
+		if (l_value->getType() != l_value->getType())
+			throw compile_error("The type of operands is NOT same");
 
 		switch (type_)
 		{
 		case operator_categories::ADD:
-			return global_builder.CreateFAdd(l_value, r_value, "addtmp");
+			if(l_value->getType() == llvm::Type::getDoubleTy(llvm::getGlobalContext()))
+				return global_builder.CreateFAdd(l_value, r_value, "addtmp");
+			else
+				if(l_value->getType() == llvm::Type::getInt8Ty(llvm::getGlobalContext()))
+					return global_builder.Create 
 		case operator_categories::SUB:
 			return global_builder.CreateFSub(l_value, r_value, "subtmp");
 		case operator_categories::MUL:

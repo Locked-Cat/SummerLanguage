@@ -225,7 +225,7 @@ namespace summer_lang
 			}
 			break;
 		default:
-			type = operator_categories::UNKNOWN;
+			type = operator_categories::USER_DEFINED;
 			operator_str += last_char;
 			break;
 		}
@@ -234,5 +234,11 @@ namespace summer_lang
 			last_char = source_code_.get();
 
 		return std::make_unique<op>(type, operator_str, row_no);
+	}
+
+	op::op_type get_op_name(const std::unique_ptr<token>& tok)
+	{
+		auto ptr = static_cast<op *>(tok.get());
+		return ptr->get_op_name();
 	}
 }

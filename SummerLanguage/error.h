@@ -33,4 +33,14 @@ namespace summer_lang
 		{
 		}
 	};
+
+	class compile_error
+		: public std::exception
+	{
+	public:
+		compile_error(const std::string & message)
+			: std::exception(message.c_str())
+		{
+		}
+	}
 }

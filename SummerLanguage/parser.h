@@ -27,12 +27,23 @@ namespace summer_lang
 {
 	class ast
 	{
+		int start_row_no_;
 	public:
+		ast(int start_row_no)
+			: start_row_no_(start_row_no)
+		{
+		}
+
 		virtual ~ast()
 		{
 		}
 
 		virtual llvm::Value * codegen() = 0;
+
+		int get_position() const
+		{
+			return start_row_no_;
+		}
 	};
 
 	class number_ast
@@ -40,8 +51,9 @@ namespace summer_lang
 	{
 		double value_;
 	public:
-		number_ast(double value)
-			: value_(value)
+		number_ast(double value, int start_row_no)
+			: ast(start_row_no)
+			, value_(value)
 		{
 		}
 
@@ -53,8 +65,9 @@ namespace summer_lang
 	{
 		std::string value_;
 	public:
-		string_ast(const std::string & value)
-			: value_(value)
+		string_ast(const std::string & value, int start_row_no)
+			: ast(start_row_no)
+			, value_(value)
 		{
 		}
 
@@ -66,8 +79,9 @@ namespace summer_lang
 	{
 		std::string name_;
 	public:
-		variable_ast(const std::string & name)
-			: name_(name)
+		variable_ast(const std::string & name, int start_row_no)
+			: ast(start_row_no)
+			, name_(name)
 		{
 		}
 
@@ -179,15 +193,17 @@ namespace summer_lang
 	class prototype_ast
 	{
 		std::string name_;
-		std::vector<std::string> args_;
+		std::vector<std::pair<std::string, type_categories>> args_;
+		type_categories ret_type_;
 
 		bool is_operator_;
 		int precedence_;
 	public:
-		prototype_ast(const std::string & name, std::vector<std::string> args, bool is_operator, int precedence)
+		prototype_ast(const std::string & name, std::vector<std::pair<std::string, type_categories>> args, type_categories ret_type, bool is_operator, int precedence)
 			: name_(name)
 			, args_(std::move(args))
-			, is_operator_(is_operator_)
+			, ret_type_(ret_type)
+			, is_operator_(is_operator)
 			, precedence_(precedence)
 		{
 		}

@@ -1,8 +1,5 @@
-extern putc(c: char)->void
-extern putd(d: double)->void
-extern puts(s: string)->void
-	
+extern putd(d: double)->void	
 
 function main()->void
-	var hello: string = "Hello World!" in
-		puts(hello)
+	var pi = 3.14 in
+		putd(pi)
