@@ -66,6 +66,15 @@ namespace summer_lang
 			if (str == "var")
 				return std::make_unique<keyword>(keyword_categories::VAR, row_no);
 
+			if (str == "begin")
+				return std::make_unique<keyword>(keyword_categories::BEGIN, row_no);
+
+			if (str == "end")
+				return std::make_unique<keyword>(keyword_categories::END, row_no);
+
+			if (str == "return")
+				return std::make_unique<keyword>(keyword_categories::RETURN, row_no);
+
 			if (str == "number")
 				return std::make_unique<type>(type_categories::NUMBER, row_no);
 
@@ -145,6 +154,10 @@ namespace summer_lang
 
 		switch (last_char)
 		{
+		case ';':
+			type = operator_categories::SEMI;
+			operator_str += ';';
+			break;
 		case '<':
 			type = operator_categories::LT;
 			operator_str += '<';

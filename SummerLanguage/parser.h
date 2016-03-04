@@ -30,6 +30,9 @@ namespace summer_lang
 	{
 		int start_row_no_;
 	public:
+		ast(const ast &) = delete;
+		ast & operator=(const ast &) = delete;
+
 		ast(int start_row_no)
 			: start_row_no_(start_row_no)
 		{
@@ -143,6 +146,46 @@ namespace summer_lang
 		}
 
 		virtual llvm::Value * codegen() override;
+	};
+
+	class empty_ast :
+		public ast
+	{
+	public:
+		empty_ast(int start_row_no)
+			: ast(start_row_no)
+		{
+		}
+
+		virtual llvm::Value * codegen() override;
+	};
+
+	class block_ast
+		: public ast
+	{
+		std::vector<std::unique_ptr<ast>> exprs_;
+	public:
+		block_ast(std::vector<std::unique_ptr<ast>> exprs, int start_row_no)
+			: ast(start_row_no)
+			, exprs_(std::move(exprs))
+		{
+		}
+
+		virtual llvm::Value * codegen() override;
+	};
+
+	class return_ast
+		: public ast
+	{
+		std::unique_ptr<ast> ret_;
+	public:
+		return_ast(std::unique_ptr<ast> ret, int start_row_no)
+			: ast(start_row_no)
+			, ret_(std::move(ret))
+		{
+		}
+
+		virtual llvm::Value	* codegen() override;
 	};
 
 	class for_expression_ast
@@ -302,6 +345,9 @@ namespace summer_lang
 		std::unique_ptr<ast> parse_for_();
 		std::unique_ptr<ast> parse_unary_();
 		std::unique_ptr<ast> parse_var_();
+		std::unique_ptr<ast> parse_block_();
+		std::unique_ptr<ast> parse_return_();
+		std::unique_ptr<ast> parse_empty_();
 
 		std::unique_ptr<prototype_ast> parse_prototype_();
 		std::unique_ptr<function_ast> parse_function_();

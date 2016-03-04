@@ -33,7 +33,7 @@ namespace summer_lang
 		{
 			if (auto ir = proto_ast->codegen())
 			{
-				//ir->dump();
+				ir->dump();
 			}
 		}
 		else
@@ -46,7 +46,7 @@ namespace summer_lang
 		{
 			if (auto ir = func_ast->codegen())
 			{
-				//ir->dump();
+				ir->dump();
 			}
 		}
 		else
@@ -59,7 +59,7 @@ namespace summer_lang
 		{
 			if (auto ir = func_ast->codegen())
 			{
-				//ir->dump();
+				ir->dump();
 				auto p_function = (double(*)())(intptr_t)global_JIT_helper->get_pointer_to_function(ir);
 				p_function();
 			}
@@ -182,6 +182,7 @@ namespace summer_lang
 				get_next_token_();
 			}
 		}
+
 		get_next_token_();
 		return std::make_unique<call_expression_ast>(name, std::move(args), start_row_no);
 	}
@@ -205,16 +206,23 @@ namespace summer_lang
 				return parse_for_();
 			case keyword_categories::VAR:
 				return parse_var_();
+			case keyword_categories::RETURN:
+				return parse_return_();
 			default:
 				break;
 			}
 			break;
 		}
 		case token_categories::OPERATOR:
-			if (get_value<op>(current_token_) == operator_categories::LBRACKET)
+			switch (get_value<op>(current_token_))
+			{
+			case operator_categories::LBRACKET:
 				return parse_parenthesis_();
-			else
+			case operator_categories::SEMI:
+				return parse_empty_();
+			default:
 				break;
+			}
 		default:
 			break;
 		}
@@ -280,7 +288,7 @@ namespace summer_lang
 			throw syntax_error("Expected \'then\' keyword", current_token_->get_position());
 		get_next_token_();
 
-		auto then_part = parse_expression_();
+		auto then_part = parse_block_();
 		if (!then_part)
 			return nullptr;
 
@@ -288,7 +296,7 @@ namespace summer_lang
 			throw syntax_error("Expected \'else\' keyword", current_token_->get_position());
 		get_next_token_();
 
-		auto else_part = parse_expression_();
+		auto else_part = parse_block_();
 		if (!else_part)
 			return nullptr;
 
@@ -354,7 +362,7 @@ namespace summer_lang
 			throw syntax_error("Expected \"in\" between head and body of \'for\'", current_token_->get_position());
 		get_next_token_();
 		
-		auto body = parse_expression_();
+		auto body = parse_block_();
 		if (!body)
 			return nullptr;
 
@@ -424,9 +432,47 @@ namespace summer_lang
 			throw syntax_error("Expected 'in' keyword after \'var\'", current_token_->get_position());
 
 		get_next_token_();
-		auto body = parse_expression_();
+		auto body = parse_block_();
 
 		return std::make_unique<var_ast>(std::move(vars), std::move(body), start_row_no);
+	}
+
+	std::unique_ptr<ast> parser::parse_block_()
+	{
+		auto start_row_no = current_token_->get_position();
+
+		if (current_token_->get_type() != token_categories::KEYWORD || get_value<keyword>(current_token_) != keyword_categories::BEGIN)
+			throw syntax_error("Expected a 'begin' keyword at the start of block", current_token_->get_position());
+		get_next_token_();
+
+		std::vector<std::unique_ptr<ast>> exprs;
+		while (current_token_->get_type() != token_categories::KEYWORD || get_value<keyword>(current_token_) != keyword_categories::END)
+		{
+			auto expr = parse_expression_();
+			exprs.push_back(std::move(expr));
+			//if (current_token_->get_type() != token_categories::OPERATOR || get_value<op>(current_token_) != operator_categories::SEMI)
+			//	throw syntax_error("Expected a \';\' after each expression in block", current_token_->get_position());
+			//get_next_token_();
+		}
+
+		get_next_token_();
+		return std::make_unique<block_ast>(std::move(exprs), start_row_no);
+	}
+
+	std::unique_ptr<ast> parser::parse_return_()
+	{
+		auto start_row_no = current_token_->get_position();
+		get_next_token_();
+
+		auto ret = parse_expression_();
+		return std::make_unique<return_ast>(std::move(ret), start_row_no);
+	}
+
+	std::unique_ptr<ast> parser::parse_empty_()
+	{
+		auto start_row_no = current_token_->get_position();
+		get_next_token_();
+		return std::make_unique<empty_ast>(start_row_no);
 	}
 
 	std::unique_ptr<prototype_ast> parser::parse_prototype_()
@@ -557,7 +603,7 @@ namespace summer_lang
 		if (!prototype)
 			return nullptr;
 
-		auto body = parse_expression_();
+		auto body = parse_block_();
 		if (!body)
 			return nullptr;
 
@@ -742,10 +788,8 @@ namespace summer_lang
 			global_named_values[arg.getName()].second = arg.getType();
 		}
 
-		auto ret_value = body_->codegen();
-		if (!(function->getReturnType()->isVoidTy()))
-			global_builder.CreateRet(ret_value);
-		else
+		body_->codegen();
+		if(function->getReturnType()->isVoidTy())
 			global_builder.CreateRetVoid();
 
 		llvm::verifyFunction(*function);
@@ -895,5 +939,22 @@ namespace summer_lang
 			global_named_values[std::get<0>(vars_[i])] = old_bindings[i];
 
 		return body_value;
+	}
+
+	llvm::Value * block_ast::codegen()
+	{
+		for (auto & expr : exprs_)
+			expr->codegen();
+
+		return llvm::Constant::getNullValue(llvm::Type::getDoubleTy(llvm::getGlobalContext()));
+	}
+
+	llvm::Value * return_ast::codegen()
+	{
+		return global_builder.CreateRet(ret_->codegen());
+	}
+	llvm::Value * empty_ast::codegen()
+	{
+		return llvm::Constant::getNullValue(llvm::Type::getDoubleTy(llvm::getGlobalContext()));
 	}
 }

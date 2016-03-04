@@ -31,12 +31,15 @@ namespace summer_lang
 		UNARY,
 		BINARY,
 		VAR,
+		BEGIN,
+		END,
+		RETURN
 	};
 
 	enum class type_categories
 	{
 		VOID,
-		NUMBER,
+		NUMBER
 	};
 
 	enum class operator_categories
@@ -55,6 +58,7 @@ namespace summer_lang
 		RBRACKET,
 		COMM,
 		COLON,
+		SEMI,
 		ASSIGN,
 		ARROW,
 		USER_DEFINED
