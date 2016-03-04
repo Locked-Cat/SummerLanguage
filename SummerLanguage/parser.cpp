@@ -11,6 +11,11 @@ namespace summer_lang
 		auto & context = llvm::getGlobalContext();
 		global_JIT_helper = std::make_unique<MCJIT_helper>(context);
 
+		std::vector<llvm::Type *> args_type{ llvm::Type::getInt8PtrTy(llvm::getGlobalContext()), llvm::Type::getInt8PtrTy(llvm::getGlobalContext()) };
+		auto function_type = llvm::FunctionType::get(llvm::Type::getInt8PtrTy(llvm::getGlobalContext()), args_type, false);
+		auto module = global_JIT_helper->get_module_for_new_function();
+		auto function = llvm::Function::Create(function_type, llvm::Function::ExternalLinkage, "str_cat", module);
+
 		global_op_precedence["="] = 2;
 		global_op_precedence["<"] = 10;
 		global_op_precedence[">"] = 10;
@@ -29,43 +34,25 @@ namespace summer_lang
 
 	void parser::handle_extern()
 	{
-		if (auto proto_ast = parse_extern_())
-		{
-			if (auto ir = proto_ast->codegen())
-			{
-				ir->dump();
-			}
-		}
-		else
-			get_next_token_();
+		auto proto_ast = parse_extern_();
+		auto ir = proto_ast->codegen();
+		//ir->dump();
 	}
 
 	void parser::handle_function()
 	{
-		if (auto func_ast = parse_function_())
-		{
-			if (auto ir = func_ast->codegen())
-			{
-				ir->dump();
-			}
-		}
-		else
-			get_next_token_();
+		auto func_ast = parse_function_();
+		auto ir = func_ast->codegen();
+		//ir->dump();
 	}
 
 	void parser::handle_top_level_expr()
 	{
-		if (auto func_ast = parse_top_level_expr_())
-		{
-			if (auto ir = func_ast->codegen())
-			{
-				ir->dump();
-				auto p_function = (double(*)())(intptr_t)global_JIT_helper->get_pointer_to_function(ir);
-				p_function();
-			}
-		}
-		else
-			get_next_token_();
+		auto func_ast = parse_top_level_expr_();
+		auto ir = func_ast->codegen();
+		//ir->dump();
+		auto p_function = (double(*)())(intptr_t)global_JIT_helper->get_pointer_to_function(ir);
+		p_function();
 	}
 
 	void parser::parse(const std::string & file_name)
@@ -139,6 +126,14 @@ namespace summer_lang
 		return std::move(result);
 	}
 
+	std::unique_ptr<ast> parser::parse_string_()
+	{
+		auto start_row_no = current_token_->get_position();
+		auto result = std::make_unique<string_ast>(get_value<literal_string>(current_token_), start_row_no);
+		get_next_token_();
+		return std::move(result);
+	}
+
 	std::unique_ptr<ast> parser::parse_parenthesis_()
 	{
 		get_next_token_();
@@ -193,6 +188,8 @@ namespace summer_lang
 		{
 		case token_categories::LITERAL_NUMBER:
 			return parse_number_();
+		case token_categories::LITERAL_STRING:
+			return parse_string_();
 		case token_categories::IDENTIFIER:
 			return parse_identifier_();
 		case token_categories::KEYWORD:
@@ -288,7 +285,7 @@ namespace summer_lang
 			throw syntax_error("Expected \'then\' keyword", current_token_->get_position());
 		get_next_token_();
 
-		auto then_part = parse_block_();
+		auto then_part = parse_expression_();
 		if (!then_part)
 			return nullptr;
 
@@ -296,7 +293,7 @@ namespace summer_lang
 			throw syntax_error("Expected \'else\' keyword", current_token_->get_position());
 		get_next_token_();
 
-		auto else_part = parse_block_();
+		auto else_part = parse_expression_();
 		if (!else_part)
 			return nullptr;
 
@@ -408,6 +405,9 @@ namespace summer_lang
 			case type_categories::NUMBER:
 				var_type = llvm::Type::getDoubleTy(llvm::getGlobalContext());
 				break;
+			case type_categories::STRING:
+				var_type = llvm::Type::getInt8PtrTy(llvm::getGlobalContext());
+				break;
 			default:
 				throw syntax_error("Unknown type", current_token_->get_position());
 			}
@@ -450,9 +450,6 @@ namespace summer_lang
 		{
 			auto expr = parse_expression_();
 			exprs.push_back(std::move(expr));
-			//if (current_token_->get_type() != token_categories::OPERATOR || get_value<op>(current_token_) != operator_categories::SEMI)
-			//	throw syntax_error("Expected a \';\' after each expression in block", current_token_->get_position());
-			//get_next_token_();
 		}
 
 		get_next_token_();
@@ -548,6 +545,9 @@ namespace summer_lang
 				{
 				case type_categories::NUMBER:
 					arg_type = llvm::Type::getDoubleTy(llvm::getGlobalContext());
+					break;
+				case type_categories::STRING:
+					arg_type = llvm::Type::getInt8PtrTy(llvm::getGlobalContext());
 					break;
 				default:
 					throw syntax_error("Unknown type", current_token_->get_position());
@@ -652,10 +652,20 @@ namespace summer_lang
 		auto l_value = left_->codegen();
 		auto r_value = right_->codegen();
 
+		if (l_value->getType() != r_value->getType())
+			throw compile_error("Expected same type of operands", get_position());
+
 		switch (op_type_)
 		{
 		case operator_categories::ADD:
-			return global_builder.CreateFAdd(l_value, r_value, "addtmp");
+			if(l_value->getType() == llvm::Type::getDoubleTy(llvm::getGlobalContext()))
+				return global_builder.CreateFAdd(l_value, r_value, "addtmp");
+			else
+			{
+				auto str_cat = global_JIT_helper->get_function("str_cat");
+				llvm::Value * args[] = { l_value, r_value };
+				return global_builder.CreateCall(str_cat, args, "addtmp");
+			}
 		case operator_categories::SUB:
 			return global_builder.CreateFSub(l_value, r_value, "subtmp");
 		case operator_categories::MUL:

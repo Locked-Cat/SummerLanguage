@@ -336,6 +336,7 @@ namespace summer_lang
 		void get_next_token_();
 
 		std::unique_ptr<ast> parse_number_();
+		std::unique_ptr<ast> parse_string_();
 		std::unique_ptr<ast> parse_parenthesis_();
 		std::unique_ptr<ast> parse_identifier_();
 		std::unique_ptr<ast> parse_primary_();

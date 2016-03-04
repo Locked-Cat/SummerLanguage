@@ -81,6 +81,9 @@ namespace summer_lang
 			if (str == "void")
 				return std::make_unique<type>(type_categories::VOID, row_no);
 
+			if (str == "string")
+				return std::make_unique<type>(type_categories::STRING, row_no);
+
 			return std::make_unique<identifier>(str, row_no);
 		}
 
@@ -146,6 +149,50 @@ namespace summer_lang
 				}
 				throw lexical_error("Illegal format of character", row_no);
 			}
+		}
+
+		if (last_char == '"')
+		{
+			auto str = std::string();
+
+			while ((last_char = source_code_.get()) != EOF && last_char != '"')
+			{
+				auto ch = last_char;
+				if (last_char == '\\')
+				{
+					last_char = source_code_.get();
+					if(last_char == EOF)
+						throw lexical_error("Illegal format of string", row_no);
+					switch (last_char)
+					{
+					case 'n':
+						ch = '\n';
+						break;
+					case 'r':
+						ch = '\r';
+						break;
+					case 't':
+						ch = '\t';
+						break;
+					case '\\':
+						ch = '\\';
+						break;
+					case '\'':
+						ch = '\'';
+						break;
+					default:
+						throw lexical_error("Illegal format of character", row_no);
+					}
+				}
+				str += ch;
+			}
+
+			if (last_char == '"')
+				last_char = source_code_.get();
+			else
+				throw lexical_error("Illegal format of string", row_no);
+
+			return std::make_unique<literal_string>(str, row_no);
 		}
 
 		operator_categories type;

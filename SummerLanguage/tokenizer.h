@@ -14,6 +14,7 @@ namespace summer_lang
 		IDENTIFIER,
 		LITERAL_NUMBER,
 		LITERAL_CHAR,
+		LITERAL_STRING,
 		OPERATOR,
 		TYPE,
 		END
@@ -39,7 +40,8 @@ namespace summer_lang
 	enum class type_categories
 	{
 		VOID,
-		NUMBER
+		NUMBER,
+		STRING
 	};
 
 	enum class operator_categories
@@ -195,6 +197,27 @@ namespace summer_lang
 		}
 
 		friend value_type get_value<literal_char>(const std::unique_ptr<token> & p_token);
+	};
+
+	class literal_string
+		: public token
+	{
+		std::string value_;
+	public:
+		using value_type = std::string;
+
+		literal_string(const std::string & value, int row_no)
+			: token(row_no)
+			, value_(value)
+		{
+		}
+
+		token_categories get_type() const override
+		{
+			return token_categories::LITERAL_STRING;
+		}
+
+		friend value_type get_value<literal_string>(const std::unique_ptr<token> & p_token);
 	};
 
 	class op
